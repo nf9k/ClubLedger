@@ -1,4 +1,67 @@
-# Membership Portal - Changelog
+# ClubLedger - Changelog
+
+---
+
+## v1.05 (April 2026)
+
+### FCC Lookup — Add Member
+- Replaced blur-triggered badge with an inline **FCC Lookup** button on the call sign field
+- Clicking immediately fetches and populates name, address, city, state, and zip
+- Shows license class and active/expired status below the field
+
+---
+
+## v1.04 (April 2026)
+
+### FCC Lookup — Profile Page
+- Admin profile view now shows a **FCC Record** comparison card below the call sign
+- Three columns: Field / Current / FCC — rows highlighted in yellow where values differ
+- **Sync from FCC** button applies all FCC values at once
+- Card auto-loads on page open; refreshes if call sign is changed
+
+---
+
+## v1.03 (April 2026)
+
+### FCC Callsign Lookup
+- New `fcc_licenses` table stores FCC ULS amateur radio license data
+- `scripts/import_fcc.py` downloads and imports the full FCC dataset (~1.68M records)
+- Supports `--daily` flag for incremental updates (runs via cron at 3am)
+- `/admin/fcc-lookup/<callsign>` endpoint for AJAX lookups
+- Download streamed to disk to avoid OOM on large FCC zip file
+
+### Infrastructure
+- `scripts/` directory now included in Docker image
+- Docker image versioning introduced (`nf9k/clubledger` on Docker Hub)
+
+---
+
+## v1.02 (April 2026)
+
+### Branding & Credit
+- `VERSION` and `APP_CREDIT` constants added to `app.py`
+- "ClubLedger vX.xx by NF9K" appears on login page, page footer, PDF footer, and email signatures
+- PDF export filename now uses `ORG_NAME` instead of hardcoded "IRC_Membership_"
+
+---
+
+## v1.01 (April 2026)
+
+### Project Rebranding
+- Repository renamed to **ClubLedger** on GitHub
+- All IRC-specific container names, paths, and references updated to `clubledger_*`
+- IRC-specific documentation replaced with generic guides (Administrator Manual, Member User Guide)
+- `CLAUDE.md` split: project context committed to repo; deployment-specific context stays local
+
+### Containerised Deployment
+- `Dockerfile` added — python:3.13-slim, gunicorn, baked-in app and templates
+- `docker-compose.yml` added — `clubledger_web` + `clubledger_db`, static volume mount for logos
+- `database/schema.sql` added — complete schema auto-applied on first MariaDB start (fresh installs skip manual migrations)
+
+---
+
+<!-- Historical entries below use the previous 2.x versioning scheme -->
+
 
 ## Version 2.3 (April 2026)
 
