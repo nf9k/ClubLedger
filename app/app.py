@@ -39,7 +39,7 @@ ORG_NAME         = os.getenv('ORG_NAME', 'Ham Radio Club')
 SERVICE_DESK_URL = os.getenv('SERVICE_DESK_URL', '')
 LOGO_FILENAME    = os.getenv('LOGO_FILENAME', '')
 
-VERSION = 'v1.04'
+VERSION = 'v1.05'
 APP_CREDIT = f'ClubLedger {VERSION} by NF9K'
 
 @app.context_processor
