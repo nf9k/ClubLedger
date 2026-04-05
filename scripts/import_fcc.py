@@ -20,6 +20,7 @@ import csv
 import io
 import os
 import sys
+import tempfile
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -118,19 +119,22 @@ def run(daily=False):
     resp = requests.get(url, timeout=300, stream=True)
     resp.raise_for_status()
 
-    data  = io.BytesIO()
-    total = 0
-    for chunk in resp.iter_content(65536):
-        data.write(chunk)
-        total += len(chunk)
-    data.seek(0)
+    with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp:
+        tmp_path = tmp.name
+        total = 0
+        for chunk in resp.iter_content(65536):
+            tmp.write(chunk)
+            total += len(chunk)
     print(f'  Downloaded {total / 1_048_576:.1f} MB', flush=True)
 
     print('  Parsing…', flush=True)
-    with zipfile.ZipFile(data) as zf:
-        hd = parse_hd(zf)
-        en = parse_en(zf)
-        am = parse_am(zf)
+    try:
+        with zipfile.ZipFile(tmp_path) as zf:
+            hd = parse_hd(zf)
+            en = parse_en(zf)
+            am = parse_am(zf)
+    finally:
+        os.unlink(tmp_path)
 
     print(f'  HD: {len(hd):,}  EN: {len(en):,}  AM: {len(am):,}', flush=True)
 
