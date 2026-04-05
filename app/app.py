@@ -39,9 +39,12 @@ ORG_NAME         = os.getenv('ORG_NAME', 'Ham Radio Club')
 SERVICE_DESK_URL = os.getenv('SERVICE_DESK_URL', '')
 LOGO_FILENAME    = os.getenv('LOGO_FILENAME', '')
 
+VERSION = 'v1.01'
+APP_CREDIT = f'ClubLedger {VERSION} by NF9K'
+
 @app.context_processor
 def inject_org():
-    return dict(org_name=ORG_NAME, service_desk_url=SERVICE_DESK_URL, logo_filename=LOGO_FILENAME)
+    return dict(org_name=ORG_NAME, service_desk_url=SERVICE_DESK_URL, logo_filename=LOGO_FILENAME, app_credit=APP_CREDIT)
 
 # Database helper functions
 def get_db_connection():
@@ -139,8 +142,7 @@ The following fields were changed:
 {contact_line}
 
 73,
-{ORG_NAME}
-Membership Portal Team
+{APP_CREDIT}
 """
     )
     try:
@@ -168,8 +170,7 @@ This link will expire in 24 hours.
 If you did not request this password reset, please ignore this email.
 
 73,
-{ORG_NAME}
-Membership Portal Team
+{APP_CREDIT}
 """
     )
     
@@ -434,7 +435,7 @@ def export_pdf():
         alignment=TA_CENTER
     )
     footer = Paragraph(f"{ORG_NAME} Membership Portal<br/>"
-                      "This document contains confidential member information.",
+                      f"This document contains confidential member information. &nbsp;|&nbsp; {APP_CREDIT}",
                       footer_style)
     elements.append(footer)
     
