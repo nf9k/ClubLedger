@@ -173,7 +173,7 @@ def run(daily=False):
             ''', batch)
         else:
             cur.executemany('''
-                INSERT INTO fcc_licenses
+                INSERT IGNORE INTO fcc_licenses
                     (callsign, fname, mi, lname, suffix, address, city, state, zip,
                      license_class, license_status)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
