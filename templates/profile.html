@@ -221,28 +221,64 @@ function fccLookup(callsign) {
                 badge.innerHTML = '<span class="badge bg-secondary">Not found in FCC database</span>';
                 return;
             }
-            const active = data.license_status === 'A';
+
+            const active      = data.license_status === 'A';
             const statusClass = active ? 'bg-success' : 'bg-danger';
             const statusText  = {'A':'Active','E':'Expired','C':'Cancelled','T':'Terminated'}[data.license_status] || data.license_status;
-            const cls = data.license_class || '';
-            const updated = data.updated_at ? ` <small class="text-muted">FCC data: ${data.updated_at.split(' ')[0]}</small>` : '';
+            const cls         = data.license_class || '';
+            const updated     = data.updated_at ? data.updated_at.split(' ')[0] : '';
+
+            // Build FCC name from parts
+            const fccName = [data.fname, data.lname].filter(Boolean).join(' ');
+
+            // Compare FCC values vs current form values
+            const fields = [
+                { label: 'Name',    fcc: fccName,       formId: 'name'    },
+                { label: 'Address', fcc: data.address,  formId: 'address' },
+                { label: 'City',    fcc: data.city,      formId: 'city'    },
+                { label: 'State',   fcc: data.state,     formId: 'state'   },
+                { label: 'ZIP',     fcc: data.zip,       formId: 'zip'     },
+            ];
+
+            const diffRows = fields.map(f => {
+                const current = document.getElementById(f.formId).value.trim();
+                const fccVal  = (f.fcc || '').trim();
+                const differs = fccVal && fccVal.toUpperCase() !== current.toUpperCase();
+                return `<tr${differs ? ' class="table-warning"' : ''}>
+                    <td class="text-muted small">${f.label}</td>
+                    <td class="small">${current || '<em class="text-muted">—</em>'}</td>
+                    <td class="small fw-semibold">${fccVal || '<em class="text-muted">—</em>'}</td>
+                </tr>`;
+            }).join('');
+
             badge.innerHTML = `
                 <span class="badge ${statusClass}">${cls} — ${statusText}</span>
-                <button type="button" class="btn btn-sm btn-outline-primary ms-2" id="applyFcc">
-                    <i class="bi bi-cloud-download"></i> Sync from FCC
-                </button>${updated}`;
+                ${updated ? `<small class="text-muted ms-2">FCC data: ${updated}</small>` : ''}
+                <div class="card mt-2 border-secondary">
+                    <div class="card-header py-1 px-2 d-flex justify-content-between align-items-center">
+                        <small class="fw-semibold text-secondary"><i class="bi bi-broadcast"></i> FCC Record</small>
+                        <button type="button" class="btn btn-sm btn-outline-primary py-0" id="applyFcc">
+                            <i class="bi bi-cloud-download"></i> Sync from FCC
+                        </button>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-sm table-borderless mb-0">
+                            <thead><tr>
+                                <th class="text-muted small ps-2" style="width:25%">Field</th>
+                                <th class="text-muted small" style="width:37.5%">Current</th>
+                                <th class="text-muted small" style="width:37.5%">FCC</th>
+                            </tr></thead>
+                            <tbody>${diffRows}</tbody>
+                        </table>
+                    </div>
+                </div>`;
 
             document.getElementById('applyFcc').addEventListener('click', function() {
-                const fname = data.fname || '';
-                const lname = data.lname || '';
-                const fullName = [fname, lname].filter(Boolean).join(' ');
-                if (fullName) document.getElementById('name').value = fullName;
-                if (data.address) document.getElementById('address').value = data.address;
-                if (data.city)    document.getElementById('city').value    = data.city;
-                if (data.state)   document.getElementById('state').value   = data.state;
-                if (data.zip)     document.getElementById('zip').value     = data.zip;
+                fields.forEach(f => {
+                    if (f.fcc) document.getElementById(f.formId).value = f.fcc.trim();
+                });
                 this.disabled = true;
-                this.textContent = 'Synced';
+                this.innerHTML = '<i class="bi bi-check"></i> Synced';
             });
         })
         .catch(() => { badge.innerHTML = ''; });
