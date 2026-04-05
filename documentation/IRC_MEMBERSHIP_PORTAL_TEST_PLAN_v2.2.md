@@ -49,7 +49,7 @@ This plan covers:
 - **Regression Testing**: Verify existing features still work after changes
 
 ### 1.4 Test Environment Requirements
-- Docker containers running (irc_membership_db, irc_membership_web)
+- Docker containers running (clubledger_db, clubledger_web)
 - Valid .env configuration
 - Test email account accessible
 - Sample member data loaded
@@ -62,7 +62,7 @@ This plan covers:
 ### 2.1 Prerequisites Checklist
 ```
 ☐ Docker Compose running (docker compose ps shows healthy containers)
-☐ Database accessible (docker exec irc_membership_db mariadb -u root -p)
+☐ Database accessible (docker exec clubledger_db mariadb -u root -p)
 ☐ Web interface accessible (http://[host]:5000)
 ☐ SMTP credentials configured in .env
 ☐ Test email account monitored (for receiving emails)
@@ -75,7 +75,7 @@ This plan covers:
 Create test accounts:
 ```sql
 -- Run in database before testing
-USE irc_membership_db;
+USE clubledger_db;
 
 -- Test admin account
 INSERT INTO members (call_sign, password_hash, email, name, paid_thru, member_type, is_admin)
@@ -1204,7 +1204,7 @@ DESCRIBE members;
 
 **Expected Results:**
 - ✓ PDF downloads automatically
-- ✓ Filename: IRC_Membership_MMDDYYYY_HHMM.pdf
+- ✓ Filename: {ORG_NAME}_Membership_YYYYMMDD_HHMM.pdf
 - ✓ Opens without errors
 - ✓ Contains all members
 
@@ -1406,7 +1406,7 @@ DESCRIBE members;
 **Priority:** Medium
 
 **Steps:**
-1. Stop database container: `docker stop irc_membership_db`
+1. Stop database container: `docker stop clubledger_db`
 2. Try to access portal
 3. Restart database
 

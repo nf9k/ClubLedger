@@ -3,7 +3,7 @@ import secrets
 from datetime import datetime, timedelta
 from functools import wraps
 import bcrypt
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 import MySQLdb
 from flask_mail import Mail, Message
@@ -33,6 +33,15 @@ mail = Mail(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+
+# Organisation branding
+ORG_NAME         = os.getenv('ORG_NAME', 'Ham Radio Club')
+SERVICE_DESK_URL = os.getenv('SERVICE_DESK_URL', '')
+LOGO_FILENAME    = os.getenv('LOGO_FILENAME', '')
+
+@app.context_processor
+def inject_org():
+    return dict(org_name=ORG_NAME, service_desk_url=SERVICE_DESK_URL, logo_filename=LOGO_FILENAME)
 
 # Database helper functions
 def get_db_connection():
@@ -87,6 +96,59 @@ def generate_reset_token():
     """Generate a secure random token"""
     return secrets.token_urlsafe(32)
 
+DIFF_FIELD_LABELS = {
+    'call_sign':    'Call Sign',
+    'email':        'Email',
+    'name':         'Name',
+    'primary_rep':  'Primary Repeater',
+    'rep_call':     'Repeater Call Sign',
+    'address':      'Address',
+    'city':         'City',
+    'state':        'State',
+    'zip':          'ZIP',
+    'telephone':    'Phone',
+    'paid_thru':    'Paid Through',
+    'member_type':  'Member Type',
+    'is_admin':     'Administrator',
+}
+
+def send_record_change_email(member_email, call_sign, changes):
+    """Email the member a summary of what changed on their record."""
+    def fmt(val, label):
+        if label == 'Administrator':
+            return 'Yes' if val else 'No'
+        return str(val) if val not in (None, '') else '(blank)'
+
+    lines = []
+    for label, old_val, new_val in changes:
+        lines.append(f"  {label}: {fmt(old_val, label)}  →  {fmt(new_val, label)}")
+
+    contact_line = f"If you did not make these changes or have questions, please contact us at {SERVICE_DESK_URL}" if SERVICE_DESK_URL else "If you did not make these changes or have questions, please contact an administrator."
+
+    msg = Message(
+        subject=f"Your {ORG_NAME} membership record has been updated",
+        recipients=[member_email],
+        body=f"""Hello {call_sign},
+
+Your membership record with {ORG_NAME} has been updated.
+
+The following fields were changed:
+
+{chr(10).join(lines)}
+
+{contact_line}
+
+73,
+{ORG_NAME}
+Membership Portal Team
+"""
+    )
+    try:
+        mail.send(msg)
+    except Exception as e:
+        print(f"Error sending record change email: {e}")
+
+
 def send_password_reset_email(user_email, call_sign, token):
     """Send password reset email"""
     reset_url = f"{os.getenv('APP_URL', 'http://localhost:5000')}/reset-password/{token}"
@@ -96,7 +158,7 @@ def send_password_reset_email(user_email, call_sign, token):
         recipients=[user_email],
         body=f"""Hello {call_sign},
 
-You have requested to reset your password for the Ham Radio Club Membership Portal.
+You have requested to reset your password for the {ORG_NAME} Membership Portal.
 
 Please click the link below to reset your password:
 {reset_url}
@@ -106,6 +168,7 @@ This link will expire in 24 hours.
 If you did not request this password reset, please ignore this email.
 
 73,
+{ORG_NAME}
 Membership Portal Team
 """
     )
@@ -180,7 +243,8 @@ def request_access():
         flash('Login instructions have been sent to your email address.', 'success')
     else:
         # Email not found - redirect to service desk
-        flash(f'Email address not found in our system. Please visit service-desk.ircinc.org to request access.', 'info')
+        contact_hint = f" Please visit {SERVICE_DESK_URL} to request access." if SERVICE_DESK_URL else " Please contact an administrator to request access."
+        flash(f'Email address not found in our system.{contact_hint}', 'info')
     
     cursor.close()
     conn.close()
@@ -255,7 +319,7 @@ def export_pdf():
     )
     
     # Title
-    title = Paragraph("Indiana Repeater Council<br/>Membership Database", title_style)
+    title = Paragraph(f"{ORG_NAME}<br/>Membership Database", title_style)
     elements.append(title)
     
     # Subtitle with date and count
@@ -369,8 +433,8 @@ def export_pdf():
         textColor=colors.grey,
         alignment=TA_CENTER
     )
-    footer = Paragraph("Indiana Repeater Council Membership Portal<br/>"
-                      "This document contains confidential member information.", 
+    footer = Paragraph(f"{ORG_NAME} Membership Portal<br/>"
+                      "This document contains confidential member information.",
                       footer_style)
     elements.append(footer)
     
@@ -379,7 +443,8 @@ def export_pdf():
     
     # Prepare response
     buffer.seek(0)
-    filename = f"IRC_Membership_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+    safe_org = ORG_NAME.replace(' ', '_')
+    filename = f"{safe_org}_Membership_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
     
     from flask import send_file
     return send_file(
@@ -401,14 +466,16 @@ def profile(user_id):
     cursor = dict_cursor(conn)
     
     if request.method == 'POST':
+        # Capture full before-state for change tracking
+        cursor.execute("SELECT * FROM members WHERE id = %s", (user_id,))
+        old_member = cursor.fetchone()
+
         # Get call sign - only admins can change it
         if current_user.is_admin:
             new_call_sign = request.form.get('call_sign').upper()
         else:
-            # Non-admin: preserve existing call sign
-            cursor.execute("SELECT call_sign FROM members WHERE id = %s", (user_id,))
-            new_call_sign = cursor.fetchone()['call_sign']
-        
+            new_call_sign = old_member['call_sign']
+
         # Get other form data
         email = request.form.get('email')
         name = request.form.get('name')
@@ -419,7 +486,7 @@ def profile(user_id):
         state = request.form.get('state')
         zip_code = request.form.get('zip')
         telephone = request.form.get('telephone')
-        
+
         # Admin-only field
         admin_comments = None
         if current_user.is_admin:
@@ -427,10 +494,7 @@ def profile(user_id):
             # Limit to 500 characters
             if admin_comments and len(admin_comments) > 500:
                 admin_comments = admin_comments[:500]
-        
-        # Check if call sign changed (only possible if admin)
-        cursor.execute("SELECT call_sign FROM members WHERE id = %s", (user_id,))
-        old_member = cursor.fetchone()
+
         old_call_sign = old_member['call_sign']
         call_sign_changed = (new_call_sign != old_call_sign)
         
@@ -485,18 +549,57 @@ def profile(user_id):
         conn.commit()
         cursor.close()
         conn.close()
-        
+
+        # Build diff of changed fields and email the member if anything changed
+        new_values = {
+            'call_sign':   new_call_sign,
+            'email':       email,
+            'name':        name,
+            'primary_rep': primary_rep,
+            'rep_call':    rep_call,
+            'address':     address,
+            'city':        city,
+            'state':       state,
+            'zip':         zip_code,
+            'telephone':   telephone,
+        }
+        if current_user.is_admin:
+            if current_user.id != user_id:
+                is_admin_new = 1 if request.form.get('is_admin') == 'on' else 0
+            else:
+                is_admin_new = old_member['is_admin']
+            new_values['paid_thru']    = request.form.get('paid_thru')
+            new_values['member_type']  = request.form.get('member_type')
+            new_values['is_admin']     = is_admin_new
+
+        changes = []
+        for field, label in DIFF_FIELD_LABELS.items():
+            if field not in new_values:
+                continue
+            old_val = old_member.get(field)
+            new_val = new_values[field]
+            # Normalise to strings for comparison; treat None and '' as equivalent
+            old_str = str(old_val) if old_val not in (None, '') else ''
+            new_str = str(new_val) if new_val not in (None, '') else ''
+            if old_str != new_str:
+                changes.append((label, old_val, new_val))
+
+        # Determine recipient email (use new email if it changed, otherwise old)
+        recipient_email = new_values.get('email') or old_member.get('email')
+        if changes and recipient_email:
+            send_record_change_email(recipient_email, new_call_sign, changes)
+
         # If admin changed someone else's call sign, notify them
         if call_sign_changed and user_id != current_user.id:
             flash(f'Call sign updated to {new_call_sign}. Member will need to login with new call sign.', 'success')
             return redirect(url_for('dashboard'))
-        
+
         # If admin changed their own call sign, log them out
         if call_sign_changed and user_id == current_user.id:
             logout_user()
             flash(f'Call sign updated to {new_call_sign}. Please login with your new call sign.', 'success')
             return redirect(url_for('login'))
-        
+
         flash('Profile updated successfully!', 'success')
         return redirect(url_for('dashboard'))
     
@@ -581,54 +684,6 @@ def initiate_password_reset(user_id):
         conn.close()
         return jsonify({'success': False, 'message': 'Failed to send email. Check SMTP configuration.'}), 500
 
-@app.route('/admin/send-update-notice/<int:user_id>', methods=['POST'])
-@login_required
-@admin_required
-def send_update_notice(user_id):
-    """Send update notice email to a member"""
-    
-    # Don't allow sending to yourself
-    if user_id == current_user.id:
-        return jsonify({'success': False, 'message': 'Cannot send update notice to yourself'}), 400
-    
-    conn = get_db_connection()
-    cursor = dict_cursor(conn)
-    
-    cursor.execute("SELECT call_sign, name, email FROM members WHERE id = %s", (user_id,))
-    user = cursor.fetchone()
-    cursor.close()
-    conn.close()
-    
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found'}), 404
-    
-    if not user['email']:
-        return jsonify({'success': False, 'message': f'No email address on file for {user["call_sign"]}'}), 400
-    
-    # Send update notice email
-    msg = Message(
-        subject="Your Indiana Repeater Council membership record has been updated",
-        recipients=[user['email']],
-        body=f"""Hello {user['call_sign']},
-
-This is a notification that your membership record with the Indiana Repeater Council has been reviewed and updated by an administrator.
-
-Please login to the membership portal to review your current information:
-{os.getenv('APP_URL', 'http://localhost:5000')}
-
-If you have any questions about these changes, please contact us at service-desk.ircinc.org
-
-73,
-Indiana Repeater Council
-Membership Portal Team
-"""
-    )
-    
-    try:
-        mail.send(msg)
-        return jsonify({'success': True, 'message': f'Update notice sent to {user["email"]} ({user["call_sign"]})'})
-    except Exception as e:
-        return jsonify({'success': False, 'message': f'Failed to send email: {str(e)}'}), 500
 
 @app.route('/forgot-password', methods=['GET', 'POST'])
 def forgot_password():

@@ -1,157 +1,129 @@
-# IRC Membership Portal v2.2 - Quick Reference
+# Membership Portal — Quick Reference
 
-## 📦 Release Package Contents
+## Project Layout
 
 ```
-irc-portal-v2.2-release/
-├── README.md                   ← Start here!
-├── CHANGELOG.md                ← What's new in v2.2
-├── application/
-│   ├── app.py                  ← Main Flask application
-│   └── requirements.txt        ← Python dependencies
-├── templates/                  ← All HTML templates
-│   ├── add_member.html
-│   ├── base.html
-│   ├── dashboard.html
-│   ├── forgot_password.html
-│   ├── login.html
-│   └── profile.html
-├── database/                   ← Database migrations
-│   ├── add_admin_comments.sql
-│   └── add_expiration_tracking.sql
-├── scripts/                    ← Automation scripts
-│   ├── check_expirations.py
-│   ├── run_expiration_check.sh
-│   ├── setup_expiration_notifications.sh
-│   └── backup_and_email.sh
-├── documentation/              ← User guides & manuals
-│   ├── IRC_Administrator_Manual_v2.2.md
-│   ├── IRC_Member_User_Guide_v2.2.md
-│   ├── IRC_MEMBERSHIP_PORTAL_TEST_PLAN_v2.2.md
-│   └── EXPIRATION_NOTIFICATION_SYSTEM.md
+membership-portal/
+├── app/
+│   ├── app.py              ← Flask application
+│   └── static/             ← Logo and static assets
+├── templates/              ← HTML templates
+├── database/               ← SQL migrations
+├── scripts/                ← Cron and backup scripts
+├── documentation/          ← Admin and member guides
 └── tests/
-    └── test_data_setup.sql     ← Test account creation
+    └── test_data_setup.sql ← Test accounts
 ```
 
 ---
 
-## 🚀 Quick Deployment (5 Steps)
+## Quick Deployment (5 Steps)
 
 ```bash
-# 1. Backup current system
-cd /docker/irc-membership-db
-docker exec irc_membership_db mariadb-dump -u root -p > backup.sql
+# 1. Configure
+cp .env.example .env
+# Edit .env — set SECRET_KEY, DB credentials, SMTP, APP_URL, ORG_NAME
 
-# 2. Extract release
-unzip irc-portal-v2.2-release.zip
-cd irc-portal-v2.2-release
+# 2. Start containers
+docker compose up -d --build
 
 # 3. Apply database migrations
-source /docker/irc-membership-db/.env
-docker exec -i irc_membership_db mariadb -u root -p"${DB_ROOT_PASSWORD}" < database/add_admin_comments.sql
+source .env
+docker exec -i clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" "${DB_NAME}" < database/add_admin_comments.sql
+docker exec -i clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" "${DB_NAME}" < database/add_expiration_tracking.sql
 
-# 4. Update files
-cp application/* /docker/irc-membership-db/
-cp templates/* /docker/irc-membership-db/app/templates/
-cp scripts/* /docker/irc-membership-db/
+# 4. Create first admin (replace values as needed)
+docker exec -it clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" "${DB_NAME}"
+# Then run:
+# INSERT INTO members (call_sign, password_hash, email, name, is_admin)
+# VALUES ('W9ABC', '<bcrypt-hash>', 'admin@yourclub.org', 'Your Name', 1);
 
-# 5. Rebuild and restart
-cd /docker/irc-membership-db
-docker compose down && docker compose up -d --build
+# 5. Verify
+curl -I http://localhost:5000
 ```
 
 ---
 
-## ✨ New Features Summary
+## Org Branding (.env)
 
-| Feature | Description | File(s) Affected |
-|---------|-------------|------------------|
-| **Auto Passwords** | System generates & emails reset link | add_member.html, app.py |
-| **Admin Comments** | 500-char internal notes field | profile.html, app.py, SQL |
-| **PDF Export** | Sorted by last name | app.py |
-| **Call Sign Edit** | Admins can change call signs | profile.html, app.py |
-| **Notifications** | Auto-email on status changes | check_expirations.py |
-| **Sortable Columns** | Click to sort dashboard | dashboard.html |
-| **Clickable Call Signs** | Links to edit profile | dashboard.html |
+```env
+ORG_NAME=Your Club Name
+SERVICE_DESK_URL=help.yourclub.org
+LOGO_FILENAME=logo.png
+ADMIN_EMAILS=admin@yourclub.org,other@yourclub.org
+```
+
+`ORG_NAME` flows into the navbar, page titles, all email subjects and bodies, and the PDF header. If `LOGO_FILENAME` is omitted, the org name renders as text on the login page. If `SERVICE_DESK_URL` is omitted, emails use generic "contact an administrator" text.
 
 ---
 
-## 📋 Post-Deployment Checklist
+## Feature Summary
+
+| Feature | Description |
+|---------|-------------|
+| **Call Sign Login** | Members log in with call sign + password |
+| **Record Change Emails** | Members receive a field-by-field diff whenever their record is saved |
+| **Admin Comments** | 500-char internal notes field, invisible to members |
+| **PDF Export** | Roster sorted by last name, landscape format |
+| **Call Sign Edit** | Admins can change member call signs |
+| **Expiration Notifications** | Auto-email on status change (Active/Expiring/Expired) |
+| **Password Reset** | Email-based token, 24-hour expiry |
+| **Sortable Dashboard** | Click column headers to sort |
+
+---
+
+## Post-Deployment Checklist
 
 ```
 ☐ Login as admin works
-☐ Add new member (auto-sends password reset)
+☐ Add new member — auto-sends password reset email
 ☐ Admin comments field visible (admins only)
-☐ PDF export downloads & sorts by last name
-☐ Status badges show correct colors
-☐ Call signs are clickable
-☐ Email notifications work (test with admin reset)
-☐ Sortable columns work on dashboard
+☐ PDF export downloads and sorts by last name
+☐ Status badges show correct colours
+☐ Call signs are clickable links
+☐ Save a profile change — member receives diff email
+☐ Expiration cron set up (optional)
 ```
 
 ---
 
-## 🔧 Optional: Setup Expiration Notifications
+## Optional: Expiration Notifications
 
 ```bash
-cd /docker/irc-membership-db
-
-# Install (if not already done)
-docker exec -i irc_membership_db mariadb -u root -p < database/add_expiration_tracking.sql
-
 # Schedule daily checks at 9 AM
 crontab -e
-# Add: 0 9 * * * /docker/irc-membership-db/run_expiration_check.sh >> /docker/irc-membership-db/backups/expiration_check.log 2>&1
+# Add:
+0 9 * * * /path/to/membership-portal/scripts/run_expiration_check.sh >> /path/to/membership-portal/backups/expiration_check.log 2>&1
 ```
+
+Requires `ADMIN_EMAILS` set in `.env` to receive summary reports.
 
 ---
 
-## 🔄 Rollback (If Needed)
+## Rollback
 
 ```bash
-cd /docker/irc-membership-db
 docker compose down
-docker exec -i irc_membership_db mariadb -u root -p < backup.sql
+docker exec -i clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" < backup.sql
 docker compose up -d
 ```
 
 ---
 
-## 📞 Support
+## Security Notes
 
-- **Documentation**: See `documentation/` folder
-- **Test Plan**: Use for validation procedures
-- **Contact**: IRC administrators
-
----
-
-## 🔐 Security Notes
-
-- Admin comments are database-level encrypted
-- Passwords never visible to admins
-- SMTP credentials in .env (never commit!)
+- Passwords are bcrypt-hashed — admins never see them
+- Admin comments are stored in the database and not exposed to members
+- SMTP credentials live in `.env` — never commit that file
 - Session timeout: 24 hours
-- SQL injection protection: parameterized queries
+- All SQL queries use parameterised placeholders
 
 ---
 
-## 📊 System Requirements
+## System Requirements
 
 - Docker & Docker Compose
 - MariaDB 11
 - Python 3.9+
-- SMTP server access (SMTP2GO configured)
-- 100MB disk space minimum
-
----
-
-## 🎯 Key Files to Review
-
-1. **README.md** - Full deployment guide
-2. **CHANGELOG.md** - Complete feature list
-3. **IRC_Administrator_Manual_v2.2.md** - Admin usage
-4. **IRC_MEMBERSHIP_PORTAL_TEST_PLAN_v2.2.md** - Testing procedures
-
----
-
-*Indiana Repeater Council - Internal Use Only*
+- SMTP server access
+- 100 MB disk space minimum

@@ -42,8 +42,10 @@ SMTP_CONFIG = {
     'from_email': os.getenv('SMTP_FROM_EMAIL')
 }
 
-APP_URL = os.getenv('APP_URL', 'http://localhost:5000')
-ADMIN_EMAILS = ['chairman@ircinc.org', 'ak9r.irc@gmail.com', 'serc1mp@sbcglobal.net']
+APP_URL          = os.getenv('APP_URL', 'http://localhost:5000')
+ORG_NAME         = os.getenv('ORG_NAME', 'Ham Radio Club')
+SERVICE_DESK_URL = os.getenv('SERVICE_DESK_URL', '')
+ADMIN_EMAILS     = [e.strip() for e in os.getenv('ADMIN_EMAILS', '').split(',') if e.strip()]
 
 def get_current_status(paid_thru):
     """Determine current status based on paid_thru year"""
@@ -77,78 +79,70 @@ def send_member_notification(member, new_status):
     msg['To'] = member['email']
     
     # Customize subject and body based on status
+    contact_line = f"Website: https://{SERVICE_DESK_URL}" if SERVICE_DESK_URL else ""
+
     if new_status == 'expired':
-        msg['Subject'] = f"IRC Membership Expired - {member['call_sign']}"
+        msg['Subject'] = f"{ORG_NAME} Membership Expired - {member['call_sign']}"
         body = f"""Hello {member['call_sign']},
 
-This is a notification that your Indiana Repeater Council membership has EXPIRED.
+This is a notification that your {ORG_NAME} membership has EXPIRED.
 
 Your membership was paid through: {member['paid_thru'] or 'Unknown'}
 Current year: {date.today().year}
 
-To renew your membership and maintain your benefits, please contact IRC regarding renewal and payment options.
+To renew your membership and maintain your benefits, please contact us regarding renewal and payment options.
 
 You can still access the membership portal to update your contact information at:
 {APP_URL}
 
 If you have already renewed, please disregard this message. It may take a few days for the system to reflect your payment.
+{contact_line}
 
-For questions about your membership status or to renew:
-Website: https://service-desk.ircinc.org
-Email: chairman@ircinc.org
-
-Thank you for your past support of the Indiana Repeater Council!
+Thank you for your past support of {ORG_NAME}!
 
 73,
-Indiana Repeater Council
+{ORG_NAME}
 Membership Team
 """
-    
+
     elif new_status == 'expiring':
-        msg['Subject'] = f"IRC Membership Expiring Soon - {member['call_sign']}"
+        msg['Subject'] = f"{ORG_NAME} Membership Expiring Soon - {member['call_sign']}"
         body = f"""Hello {member['call_sign']},
 
-This is a friendly reminder that your Indiana Repeater Council membership expires at the end of this year.
+This is a friendly reminder that your {ORG_NAME} membership expires at the end of this year.
 
 Your membership is paid through: {member['paid_thru']}
 Current year: {date.today().year}
 
 To ensure uninterrupted membership, please renew before December 31, {date.today().year}.
-
-For renewal information:
-Website: https://service-desk.ircinc.org
-Email: chairman@ircinc.org
+{contact_line}
 
 You can access the membership portal at any time to update your information:
 {APP_URL}
 
-Thank you for your continued support of the Indiana Repeater Council!
+Thank you for your continued support of {ORG_NAME}!
 
 73,
-Indiana Repeater Council
+{ORG_NAME}
 Membership Team
 """
-    
+
     elif new_status == 'active':
-        # Member renewed or was updated - send confirmation
-        msg['Subject'] = f"IRC Membership Active - {member['call_sign']}"
+        msg['Subject'] = f"{ORG_NAME} Membership Active - {member['call_sign']}"
         body = f"""Hello {member['call_sign']},
 
-Thank you! Your Indiana Repeater Council membership is now ACTIVE.
+Thank you! Your {ORG_NAME} membership is now ACTIVE.
 
 Your membership is paid through: {member['paid_thru']}
 
 You can access the membership portal at:
 {APP_URL}
+{contact_line}
 
-If you have any questions, please contact us:
-Website: https://service-desk.ircinc.org
-Email: chairman@ircinc.org
-
-Thank you for supporting the Indiana Repeater Council!
+Thank you for supporting {ORG_NAME}!
 
 73,
-Indiana Repeater Council
+{ORG_NAME}
 Membership Team
 """
     else:
@@ -174,7 +168,7 @@ def send_admin_summary(notifications):
     msg = MIMEMultipart()
     msg['From'] = SMTP_CONFIG['from_email']
     msg['To'] = ', '.join(ADMIN_EMAILS)
-    msg['Subject'] = f"IRC Membership Expiration Notifications - {date.today().strftime('%Y-%m-%d')}"
+    msg['Subject'] = f"{ORG_NAME} Membership Expiration Notifications - {date.today().strftime('%Y-%m-%d')}"
     
     # Build summary
     expired_count = sum(1 for n in notifications if n['new_status'] == 'expired')
@@ -231,10 +225,10 @@ Action Required:
 - Update membership records as needed
 
 Access the membership portal:
-""" + APP_URL + """
+""" + APP_URL + f"""
 
 73,
-IRC Membership Notification System
+{ORG_NAME} Membership Notification System
 """
     
     msg.attach(MIMEText(body, 'plain'))

@@ -1,169 +1,199 @@
-# IRC Membership Portal v2.2 - Deployment Guide
+# ClubLedger — Ham Radio Club Membership Portal
 
-**Release Date:** February 6, 2026  
-**Version:** 2.2 Final
+A self-hosted web application for managing ham radio club membership records. Members log in with their call sign to view and update their own information. Administrators manage the full member list, track dues, export rosters, and receive automated expiration notifications.
 
----
-
-## What's New in v2.2
-
-### Major Features
-1. **Auto-Generated Passwords** - Members set their own passwords via email
-2. **Administrator Comments** - Internal payment tracking field (500 chars)
-3. **PDF Export** - Sorted by last name, professional formatting
-4. **Call Sign Editing** - Admins can update member call signs
-5. **Automated Expiration Notifications** - Email alerts on status changes
-6. **Send Update Notices** - Notify members when records are updated
-
-### Bug Fixes & Improvements
-- Fixed admin status preservation when editing own profile
-- Added sortable dashboard columns
-- Made call signs clickable links to edit
-- Improved status badge logic (Active/Expiring/Expired)
-- Enhanced security validations
+**Current version: 2.3**
 
 ---
 
-## Quick Start Deployment
+## Features
+
+- Call sign + password authentication with bcrypt
+- Member self-service: update contact details, change password
+- Admin dashboard with sortable columns and status badges (Active / Expiring / Expired)
+- Add, edit, and delete members
+- Automatic record change emails — members receive a field-by-field diff whenever their record is saved
+- Automated expiration notifications via cron — emails sent only when status actually changes
+- PDF roster export, sorted by last name
+- Admin-only internal comments field (not visible to members)
+- Password reset via email link (24-hour tokens)
+- Fully configurable org branding via environment variables
+
+---
+
+## Stack
+
+- **Backend**: Python 3 / Flask, Flask-Login, Flask-Mail
+- **Database**: MariaDB
+- **Auth**: bcrypt
+- **PDF**: reportlab
+- **Email**: any SMTP provider (SMTP2GO recommended)
+- **Deployment**: Docker + Docker Compose
+
+---
+
+## Quick Start
 
 ### Prerequisites
-- Docker and Docker Compose installed
-- Existing IRC Portal v2.1 or fresh installation
-- Root/sudo access to server
 
-### Step 1: Backup Current System
+- Docker and Docker Compose
+- An SMTP account (SMTP2GO or similar)
+
+### 1. Clone and configure
+
 ```bash
-cd /docker/irc-membership-db
-docker exec irc_membership_db mariadb-dump -u root -p > backup_pre_v2.2.sql
-cp -r app app_backup_v2.1
+git clone <repo-url> membership-portal
+cd membership-portal
+cp .env.example .env
 ```
 
-### Step 2: Extract Release Files
-```bash
-cd /docker/irc-membership-db
-unzip irc-portal-v2.2-release.zip
+Edit `.env` — at minimum set these values:
+
+```env
+SECRET_KEY=change-this-to-a-random-string
+
+DB_ROOT_PASSWORD=
+DB_USER=membership_user
+DB_PASSWORD=
+DB_NAME=clubledger_db
+
+SMTP_HOST=mail.smtp2go.com
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_FROM_EMAIL=noreply@yourclub.org
+
+APP_URL=https://members.yourclub.org
+
+# Org branding
+ORG_NAME=Your Club Name
+SERVICE_DESK_URL=help.yourclub.org
+LOGO_FILENAME=logo.png
+ADMIN_EMAILS=admin1@yourclub.org,admin2@yourclub.org
 ```
 
-### Step 3: Apply Database Migrations
+See [Org Branding](#org-branding) below for details on the branding variables.
+
+### 2. Add your logo (optional)
+
+Copy your logo file into `app/static/` and set `LOGO_FILENAME` in `.env`. If omitted, the org name renders as text on the login page.
+
+### 3. Start the containers
+
+```bash
+docker compose up -d --build
+```
+
+### 4. Initialise the database
+
 ```bash
 source .env
-
-# Add admin comments field
-docker exec -i irc_membership_db mariadb -u root -p"${DB_ROOT_PASSWORD}" < database/add_admin_comments.sql
-
-# Add expiration tracking (if not already present)
-docker exec -i irc_membership_db mariadb -u root -p"${DB_ROOT_PASSWORD}" < database/add_expiration_tracking.sql 2>/dev/null || echo "Expiration tracking already exists"
+docker exec -i clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" "${DB_NAME}" < database/add_admin_comments.sql
+docker exec -i clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" "${DB_NAME}" < database/add_expiration_tracking.sql
 ```
 
-### Step 4: Update Application Files
+### 5. Create your first admin account
+
 ```bash
-# Backend
-cp application/app.py app/app.py
-cp application/requirements.txt requirements.txt
-
-# Templates
-cp templates/*.html app/templates/
-
-# Scripts
-cp scripts/check_expirations.py .
-cp scripts/run_expiration_check.sh .
-cp scripts/setup_expiration_notifications.sh .
-chmod +x *.sh
-
-# Optionally copy backup script
-cp scripts/backup_and_email.sh .
-chmod +x backup_and_email.sh
+docker exec -it clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" "${DB_NAME}"
 ```
 
-### Step 5: Rebuild and Restart
-```bash
-# Rebuild with new requirements
-docker compose down
-docker compose up -d --build
-
-# Verify containers are running
-docker compose ps
-
-# Check logs
-docker compose logs -f web
+```sql
+INSERT INTO members (call_sign, password_hash, email, name, is_admin)
+VALUES ('W9ABC', '<bcrypt-hash>', 'admin@yourclub.org', 'Your Name', 1);
 ```
 
-### Step 6: Test Deployment
-```bash
-# Test login
-curl -I http://localhost:5000
+To generate a bcrypt hash:
 
-# Check database connection
-docker exec irc_membership_db mariadb -u root -p"${DB_ROOT_PASSWORD}" -e "SELECT COUNT(*) FROM irc_membership_db.members;"
+```bash
+python3 -c "import bcrypt; print(bcrypt.hashpw(b'yourpassword', bcrypt.gensalt()).decode())"
 ```
 
-### Step 7: Setup Expiration Notifications (Optional)
+### 6. Set up expiration notifications (optional)
+
+Add to your server's crontab for daily 9am checks:
+
 ```bash
-# Add to crontab
 crontab -e
-
-# Add this line for daily 9am checks:
-0 9 * * * /docker/irc-membership-db/run_expiration_check.sh >> /docker/irc-membership-db/backups/expiration_check.log 2>&1
+# Add:
+0 9 * * * /path/to/membership-portal/scripts/run_expiration_check.sh >> /path/to/membership-portal/backups/expiration_check.log 2>&1
 ```
+
+---
+
+## Org Branding
+
+Four environment variables control all club-specific text throughout the app, emails, and PDF exports. No code changes needed.
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ORG_NAME` | Full organisation name | `Ham Radio Club` |
+| `SERVICE_DESK_URL` | Support URL shown in emails and password recovery | *(omit for generic text)* |
+| `LOGO_FILENAME` | Filename in `app/static/` for login page logo | *(omit to show org name as text)* |
+| `ADMIN_EMAILS` | Comma-separated list for expiration summary emails | *(none)* |
 
 ---
 
 ## File Structure
 
 ```
-irc-portal-v2.2-release/
-├── README.md (this file)
-├── DEPLOYMENT.md
-├── CHANGELOG.md
-├── application/
-│   ├── app.py
-│   └── requirements.txt
-├── templates/
-│   ├── add_member.html
-│   ├── base.html
-│   ├── dashboard.html
-│   ├── forgot_password.html
-│   ├── login.html
-│   └── profile.html
-├── database/
+membership-portal/
+├── app/
+│   ├── app.py              ← Flask application
+│   ├── requirements.txt
+│   └── static/             ← Logo and static assets
+├── templates/              ← Jinja2 HTML templates
+├── database/               ← SQL migration files
 │   ├── add_admin_comments.sql
 │   └── add_expiration_tracking.sql
 ├── scripts/
-│   ├── check_expirations.py
+│   ├── check_expirations.py        ← Cron notification script
 │   ├── run_expiration_check.sh
 │   ├── setup_expiration_notifications.sh
 │   └── backup_and_email.sh
-├── documentation/
-│   ├── IRC_Administrator_Manual_v2.2.md
-│   ├── IRC_Member_User_Guide_v2.2.md
-│   ├── IRC_MEMBERSHIP_PORTAL_TEST_PLAN_v2.2.md
-│   └── EXPIRATION_NOTIFICATION_SYSTEM.md
-└── tests/
-    └── test_data_setup.sql
+├── documentation/          ← Administrator and member guides
+├── tests/
+│   └── test_data_setup.sql
+└── docker-compose.yml
 ```
 
 ---
 
-## Rollback Procedure
+## Environment Variables — Full Reference
 
-If issues arise:
+```env
+# Application
+SECRET_KEY=
+APP_URL=
+
+# Database
+DB_HOST=db
+DB_USER=membership_user
+DB_PASSWORD=
+DB_NAME=clubledger_db
+DB_ROOT_PASSWORD=
+
+# SMTP
+SMTP_HOST=mail.smtp2go.com
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_FROM_EMAIL=
+
+# Org branding
+ORG_NAME=
+SERVICE_DESK_URL=
+LOGO_FILENAME=
+ADMIN_EMAILS=
+```
+
+---
+
+## Rollback
 
 ```bash
-cd /docker/irc-membership-db
-
-# Stop services
 docker compose down
-
-# Restore application
-rm -rf app
-mv app_backup_v2.1 app
-
-# Restore database (if needed)
-docker compose up -d db
-sleep 10
-docker exec -i irc_membership_db mariadb -u root -p < backup_pre_v2.2.sql
-
-# Restart
+docker exec -i clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" < backup.sql
 docker compose up -d
 ```
 
@@ -171,29 +201,20 @@ docker compose up -d
 
 ## Verification Checklist
 
-After deployment, verify:
+After deployment:
 
-- ☐ Login works (admin and regular member)
-- ☐ Dashboard displays with sortable columns
-- ☐ Adding member auto-sends password reset email
-- ☐ Admin comments field visible on profile (admins only)
-- ☐ PDF export downloads and sorts by last name
-- ☐ Status badges show correct colors
-- ☐ Call signs are clickable links
-- ☐ Password reset emails send correctly
-- ☐ Update notifications send correctly
-
----
-
-## Support
-
-For issues or questions:
-- Review documentation in `documentation/` folder
-- Check test plan for validation procedures
-- Contact: IRC administrators
+- [ ] Login works (admin and regular member)
+- [ ] Dashboard displays with sortable columns
+- [ ] Adding a member sends password reset email
+- [ ] Admin comments field visible on profile (admins only)
+- [ ] PDF export downloads and sorts by last name
+- [ ] Status badges show correct colours
+- [ ] Call signs are clickable links
+- [ ] Password reset emails send correctly
+- [ ] Record change emails send correctly when a profile is saved
 
 ---
 
 ## License
 
-Proprietary - Indiana Repeater Council Internal Use Only
+See `LICENSE`.

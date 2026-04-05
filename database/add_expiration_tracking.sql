@@ -1,7 +1,5 @@
 -- Migration: Add expiration notification tracking
--- Run this on the database to add new fields
-
-USE irc_membership_db;
+-- Run with: docker exec -i <db_container> mariadb -u root -p"${DB_ROOT_PASSWORD}" "${DB_NAME}" < database/add_expiration_tracking.sql
 
 -- Add columns for tracking expiration notifications
 ALTER TABLE members 

@@ -140,7 +140,7 @@ Action Required:
 
 ### 1. Copy Files to Server
 
-Place these 4 files in `/docker/irc-membership-db/`:
+Place these 4 files in `/docker/clubledger/`:
 - `add_expiration_tracking.sql` - Database migration
 - `check_expirations.py` - Main notification script
 - `setup_expiration_notifications.sh` - Installation script
@@ -149,7 +149,7 @@ Place these 4 files in `/docker/irc-membership-db/`:
 ### 2. Run Setup
 
 ```bash
-cd /docker/irc-membership-db
+cd /docker/clubledger
 chmod +x setup_expiration_notifications.sh
 ./setup_expiration_notifications.sh
 ```
@@ -169,17 +169,17 @@ Add one of these lines:
 
 **Daily at 9:00 AM:**
 ```
-0 9 * * * /docker/irc-membership-db/run_expiration_check.sh >> /docker/irc-membership-db/backups/expiration_check.log 2>&1
+0 9 * * * /docker/clubledger/run_expiration_check.sh >> /docker/clubledger/backups/expiration_check.log 2>&1
 ```
 
 **Weekly on Monday at 9:00 AM:**
 ```
-0 9 * * 1 /docker/irc-membership-db/run_expiration_check.sh >> /docker/irc-membership-db/backups/expiration_check.log 2>&1
+0 9 * * 1 /docker/clubledger/run_expiration_check.sh >> /docker/clubledger/backups/expiration_check.log 2>&1
 ```
 
 **First of month at 9:00 AM:**
 ```
-0 9 1 * * /docker/irc-membership-db/run_expiration_check.sh >> /docker/irc-membership-db/backups/expiration_check.log 2>&1
+0 9 1 * * /docker/clubledger/run_expiration_check.sh >> /docker/clubledger/backups/expiration_check.log 2>&1
 ```
 
 ## Manual Testing
@@ -187,7 +187,7 @@ Add one of these lines:
 To test the system manually:
 
 ```bash
-cd /docker/irc-membership-db
+cd /docker/clubledger
 ./run_expiration_check.sh
 ```
 
@@ -199,7 +199,7 @@ Check the output for:
 
 View logs:
 ```bash
-tail -f /docker/irc-membership-db/backups/expiration_check.log
+tail -f /docker/clubledger/backups/expiration_check.log
 ```
 
 ## Example Scenarios
@@ -260,7 +260,7 @@ No additional configuration needed.
 
 Check:
 1. Is cron job running? `grep expiration /var/log/syslog`
-2. Check logs: `tail /docker/irc-membership-db/backups/expiration_check.log`
+2. Check logs: `tail /docker/clubledger/backups/expiration_check.log`
 3. Verify SMTP settings in `.env`
 4. Test manually: `./run_expiration_check.sh`
 
@@ -297,8 +297,8 @@ expiration_status       VARCHAR(20) Last known status: active, expiring, expired
 To view current status of all members:
 
 ```bash
-docker exec -it irc_membership_db mariadb -u root -p
-USE irc_membership_db;
+docker exec -it clubledger_db mariadb -u root -p
+USE clubledger_db;
 
 SELECT call_sign, paid_thru, expiration_status, expiration_notice_sent 
 FROM members 

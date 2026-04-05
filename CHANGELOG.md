@@ -1,4 +1,28 @@
-# IRC Membership Portal - Changelog
+# Membership Portal - Changelog
+
+## Version 2.3 (April 2026)
+
+### New Features
+
+#### Automatic Record Change Emails
+- Members receive a field-by-field diff email whenever their record is saved
+- Works for both admin edits and member self-edits
+- If the email address itself changed, the notification goes to the new address
+- Admin-only internal comments are never included in member-facing emails
+- No email sent if nothing actually changed on the record
+- Replaces the manual "Send Update Notice" button
+
+#### Org Branding via Environment Variables
+- All club-specific text is now driven by `.env` — no code changes needed
+- `ORG_NAME`: flows into navbar, page titles, email subjects/bodies, PDF header
+- `SERVICE_DESK_URL`: support link in emails and password recovery page; omit for generic text
+- `LOGO_FILENAME`: logo image on login/recovery pages; omit to display org name as text
+- `ADMIN_EMAILS`: comma-separated list for expiration summary emails; replaces hardcoded addresses
+
+### Removed
+- "Send Update Notice" dashboard button — superseded by automatic diff emails
+
+---
 
 ## Version 2.2 (February 6, 2026)
 

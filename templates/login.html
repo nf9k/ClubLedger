@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Login - Indiana Repeater Council{% endblock %}
+{% block title %}Login - {{ org_name }}{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center mt-5">
@@ -8,7 +8,11 @@
         <div class="card">
             <div class="card-body p-4">
                 <div class="text-center mb-4">
-                    <img src="{{ url_for('static', filename='irc-logo1.gif') }}" alt="Indiana Repeater Council" style="max-width: 300px; height: auto;">
+                    {% if logo_filename %}
+                    <img src="{{ url_for('static', filename=logo_filename) }}" alt="{{ org_name }}" style="max-width: 300px; height: auto;">
+                    {% else %}
+                    <h4 class="mb-0"><i class="bi bi-broadcast"></i> {{ org_name }}</h4>
+                    {% endif %}
                     <p class="text-muted mt-3">Membership Portal</p>
                 </div>
 

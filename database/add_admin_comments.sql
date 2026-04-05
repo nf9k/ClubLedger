@@ -1,7 +1,5 @@
 -- Migration: Add admin comments field for internal notes
--- Run this on the database
-
-USE irc_membership_db;
+-- Run with: docker exec -i <db_container> mariadb -u root -p"${DB_ROOT_PASSWORD}" "${DB_NAME}" < database/add_admin_comments.sql
 
 -- Add admin comments field
 ALTER TABLE members 
