@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt gunicorn
 
 COPY app/app.py .
 COPY templates/ ./templates/
+COPY scripts/ ./scripts/
 
 RUN mkdir -p static
 
