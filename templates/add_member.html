@@ -20,8 +20,10 @@
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label for="call_sign" class="form-label">Call Sign <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control text-uppercase" id="call_sign" name="call_sign" 
-                                   required style="text-transform: uppercase;" placeholder="W9ABC">
+                            <input type="text" class="form-control text-uppercase" id="call_sign" name="call_sign"
+                                   required style="text-transform: uppercase;" placeholder="W9ABC"
+                                   autocomplete="off">
+                            <div id="fccBadge" class="mt-1"></div>
                             <small class="form-text text-muted">This will be used as the login username</small>
                         </div>
                         <div class="col-md-6 mb-3">
@@ -151,5 +153,49 @@ if (adminComments) {
         charCount.textContent = this.value.length;
     });
 }
+
+// FCC callsign lookup
+document.getElementById('call_sign').addEventListener('blur', function() {
+    const callsign = this.value.trim().toUpperCase();
+    const badge = document.getElementById('fccBadge');
+    if (callsign.length < 3) { badge.innerHTML = ''; return; }
+
+    fetch(`/admin/fcc-lookup/${encodeURIComponent(callsign)}`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.found) {
+                badge.innerHTML = '<span class="badge bg-secondary">Not found in FCC database</span>';
+                return;
+            }
+            const active = data.license_status === 'A';
+            const statusClass = active ? 'bg-success' : 'bg-danger';
+            const statusText  = {'A':'Active','E':'Expired','C':'Cancelled','T':'Terminated'}[data.license_status] || data.license_status;
+            const cls = data.license_class || '';
+            badge.innerHTML = `
+                <span class="badge ${statusClass}">${cls} — ${statusText}</span>
+                <button type="button" class="btn btn-sm btn-outline-primary ms-2" id="applyFcc">
+                    <i class="bi bi-cloud-download"></i> Apply FCC Data
+                </button>`;
+
+            document.getElementById('applyFcc').addEventListener('click', function() {
+                const fname = data.fname || '';
+                const lname = data.lname || '';
+                const fullName = [fname, lname].filter(Boolean).join(' ');
+                if (fullName && !document.getElementById('name').value)
+                    document.getElementById('name').value = fullName;
+                if (data.address && !document.getElementById('address').value)
+                    document.getElementById('address').value = data.address;
+                if (data.city && !document.getElementById('city').value)
+                    document.getElementById('city').value = data.city;
+                if (data.state && !document.getElementById('state').value)
+                    document.getElementById('state').value = data.state;
+                if (data.zip && !document.getElementById('zip').value)
+                    document.getElementById('zip').value = data.zip;
+                this.disabled = true;
+                this.textContent = 'Applied';
+            });
+        })
+        .catch(() => { badge.innerHTML = ''; });
+});
 </script>
 {% endblock %}

@@ -822,6 +822,23 @@ def add_member():
     
     return render_template('add_member.html')
 
+@app.route('/admin/fcc-lookup/<callsign>')
+@login_required
+@admin_required
+def fcc_lookup(callsign):
+    conn = get_db_connection()
+    cur  = dict_cursor(conn)
+    cur.execute('SELECT * FROM fcc_licenses WHERE callsign = %s', (callsign.strip().upper(),))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row:
+        return jsonify({'found': False})
+    if row.get('updated_at'):
+        row['updated_at'] = str(row['updated_at'])
+    return jsonify({'found': True, **row})
+
+
 @app.route('/admin/delete-member/<int:user_id>', methods=['POST'])
 @login_required
 @admin_required

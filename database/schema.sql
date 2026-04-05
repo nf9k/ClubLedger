@@ -22,6 +22,21 @@ CREATE TABLE IF NOT EXISTS members (
     expiration_notice_sent  DATE DEFAULT NULL
 );
 
+CREATE TABLE IF NOT EXISTS fcc_licenses (
+    callsign        VARCHAR(10)  NOT NULL PRIMARY KEY,
+    fname           VARCHAR(100),
+    mi              VARCHAR(5),
+    lname           VARCHAR(100),
+    suffix          VARCHAR(20),
+    address         VARCHAR(255),
+    city            VARCHAR(100),
+    state           CHAR(2),
+    zip             VARCHAR(10),
+    license_class   VARCHAR(20),
+    license_status  CHAR(1),
+    updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
     id          INT PRIMARY KEY AUTO_INCREMENT,
     user_id     INT NOT NULL,
