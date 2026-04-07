@@ -138,14 +138,28 @@ def run(daily=False):
 
     print(f'  HD: {len(hd):,}  EN: {len(en):,}  AM: {len(am):,}', flush=True)
 
-    rows = []
+    # Build raw rows keyed by USI, then deduplicate by callsign.
+    # EN.dat can contain multiple USI rows for the same callsign (prior holders +
+    # current holder after reassignment). Prefer status='A' (Active); among ties
+    # take the last USI seen — same last-row-wins behaviour as before but only
+    # among records that share the winning status tier.
+    raw = {}
     for usi, entity in en.items():
-        rows.append((
+        raw[usi] = (
             entity['callsign'], entity['fname'], entity['mi'],
             entity['lname'],    entity['suffix'], entity['address'],
             entity['city'],     entity['state'],  entity['zip'],
             am.get(usi),        hd.get(usi) or None,
-        ))
+        )
+
+    best = {}   # callsign -> best row
+    for row in raw.values():
+        call   = row[0]
+        status = row[10]   # license_status: 'A'=Active, 'E'=Expired, 'C'=Cancelled, etc.
+        prev   = best.get(call)
+        if prev is None or (status == 'A' and prev[10] != 'A'):
+            best[call] = row
+    rows = list(best.values())
 
     print(f'  Upserting {len(rows):,} rows…', flush=True)
     conn = get_conn()

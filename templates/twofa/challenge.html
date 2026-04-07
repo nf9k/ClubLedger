@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Verify — {{ org_name }}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+</head>
+<body class="d-flex align-items-center justify-content-center min-vh-100" style="background-color:#f0f4f8;">
+<div class="card" style="width: 24rem;">
+  <div class="card-body p-4">
+    <h4 class="card-title text-center mb-1">
+      <i class="bi bi-shield-lock"></i> Two-Factor Verification
+    </h4>
+    <p class="text-center text-secondary small mb-4">{{ row.call_sign }}</p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+      <div class="alert alert-{{ category }} py-2 small">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    {% if row.totp_enabled %}
+    <form method="post" class="mb-3">
+      <div class="mb-3">
+        <label class="form-label" for="code">Authenticator Code or Backup Code</label>
+        <input id="code" name="code" type="text" class="form-control text-center"
+               inputmode="numeric" autocomplete="one-time-code"
+               placeholder="000000" maxlength="20" autofocus required>
+        <div class="form-text">Enter the 6-digit code from your authenticator app, or a backup code.</div>
+      </div>
+      <button type="submit" class="btn btn-primary w-100">Verify</button>
+    </form>
+    {% endif %}
+
+    {% if row.webauthn_enabled %}
+    <div class="{% if row.totp_enabled %}border-top pt-3{% endif %}">
+      <button id="webauthnBtn" class="btn btn-outline-secondary w-100">
+        <i class="bi bi-usb-symbol"></i> Use Security Key
+      </button>
+      <div id="webauthnStatus" class="text-center small text-secondary mt-2 d-none"></div>
+    </div>
+    {% endif %}
+
+    <div class="text-center mt-3">
+      <a href="{{ url_for('login') }}" class="small text-secondary">Back to login</a>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+{% if row.webauthn_enabled %}
+<script>
+function b64url(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+function b64urlDecode(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  return Uint8Array.from(atob(s), c => c.charCodeAt(0));
+}
+
+document.getElementById('webauthnBtn').addEventListener('click', async function() {
+  const statusEl = document.getElementById('webauthnStatus');
+  statusEl.classList.remove('d-none');
+  statusEl.textContent = 'Waiting for security key…';
+  try {
+    const optResp = await fetch('{{ url_for("twofa_webauthn_auth_begin") }}', { method: 'POST' });
+    const options = await optResp.json();
+
+    options.challenge = b64urlDecode(options.challenge);
+    if (options.allowCredentials) {
+      options.allowCredentials = options.allowCredentials.map(c => ({
+        ...c, id: b64urlDecode(c.id)
+      }));
+    }
+
+    const credential = await navigator.credentials.get({ publicKey: options });
+    const payload = {
+      id: credential.id,
+      rawId: b64url(credential.rawId),
+      type: credential.type,
+      response: {
+        authenticatorData: b64url(credential.response.authenticatorData),
+        clientDataJSON:    b64url(credential.response.clientDataJSON),
+        signature:         b64url(credential.response.signature),
+        userHandle: credential.response.userHandle ? b64url(credential.response.userHandle) : null,
+      }
+    };
+
+    const verifyResp = await fetch('{{ url_for("twofa_webauthn_auth_complete") }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const result = await verifyResp.json();
+    if (result.success) {
+      window.location = result.redirect;
+    } else {
+      statusEl.textContent = result.message || 'Verification failed.';
+    }
+  } catch (e) {
+    statusEl.textContent = e.name === 'NotAllowedError' ? 'Cancelled.' : 'Error: ' + e.message;
+  }
+});
+</script>
+{% endif %}
+</body>
+</html>

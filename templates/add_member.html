@@ -80,6 +80,7 @@
                         <div class="col-md-5 mb-3">
                             <label for="zip" class="form-label">ZIP Code</label>
                             <input type="text" class="form-control" id="zip" name="zip">
+                            <div id="zipHint" class="form-text"></div>
                         </div>
                     </div>
 
@@ -200,5 +201,11 @@ document.getElementById('fccSyncBtn').addEventListener('click', function() {
             status.innerHTML = '<small class="text-danger">Lookup failed.</small>';
         });
 });
+</script>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+attachZipLookup('zip', 'city', 'state', 'zipHint');
 </script>
 {% endblock %}

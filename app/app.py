@@ -53,7 +53,7 @@ LOGO_FILENAME    = os.getenv('LOGO_FILENAME', '')
 HCAPTCHA_SITE_KEY   = os.getenv('HCAPTCHA_SITE_KEY', '')
 HCAPTCHA_SECRET_KEY = os.getenv('HCAPTCHA_SECRET_KEY', '')
 
-VERSION = 'v1.09'
+VERSION = 'v1.10'
 APP_CREDIT = f'ClubLedger {VERSION} by NF9K'
 
 @app.context_processor

@@ -2,16 +2,19 @@
 
 A self-hosted web application for managing ham radio club membership records. Members log in with their call sign to view and update their own information. Administrators manage the full member list, track dues, export rosters, and receive automated expiration notifications.
 
-**Current version: 2.3**
+**Current version: v1.07**
 
 ---
 
 ## Features
 
 - Call sign + password authentication with bcrypt
-- Member self-service: update contact details, change password
+- **hCaptcha** on login and password recovery (optional — inactive unless keys are configured)
+- **Two-factor authentication** — TOTP (Google Authenticator, Authy, etc.), hardware security keys (YubiKey / WebAuthn), and 8 one-time backup codes
+- Member self-service: update contact details, change password, manage 2FA
 - Admin dashboard with sortable columns and status badges (Active / Expiring / Expired)
 - Add, edit, and delete members
+- **FCC ULS lookup** — admins can look up any call sign against a local copy of the FCC amateur license database (~1.68M records), with one-click sync to member profile
 - Automatic record change emails — members receive a field-by-field diff whenever their record is saved
 - Automated expiration notifications via cron — emails sent only when status actually changes
 - PDF roster export, sorted by last name
@@ -23,9 +26,9 @@ A self-hosted web application for managing ham radio club membership records. Me
 
 ## Stack
 
-- **Backend**: Python 3 / Flask, Flask-Login, Flask-Mail
-- **Database**: MariaDB
-- **Auth**: bcrypt
+- **Backend**: Python 3.13 / Flask 3.0, Flask-Login, Flask-Mail
+- **Database**: MariaDB 11
+- **Auth**: bcrypt, pyotp (TOTP), py_webauthn (FIDO2/WebAuthn), hCaptcha
 - **PDF**: reportlab
 - **Email**: any SMTP provider (SMTP2GO recommended)
 - **Deployment**: Docker + Docker Compose
@@ -42,8 +45,8 @@ A self-hosted web application for managing ham radio club membership records. Me
 ### 1. Clone and configure
 
 ```bash
-git clone <repo-url> membership-portal
-cd membership-portal
+git clone <repo-url> clubledger
+cd clubledger
 cp .env.example .env
 ```
 
@@ -72,27 +75,19 @@ LOGO_FILENAME=logo.png
 ADMIN_EMAILS=admin1@yourclub.org,admin2@yourclub.org
 ```
 
-See [Org Branding](#org-branding) below for details on the branding variables.
-
 ### 2. Add your logo (optional)
 
-Copy your logo file into `app/static/` and set `LOGO_FILENAME` in `.env`. If omitted, the org name renders as text on the login page.
+Copy your logo file into `static/` and set `LOGO_FILENAME` in `.env`. If omitted, the org name renders as text on the login page.
 
 ### 3. Start the containers
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
-### 4. Initialise the database
+The database schema is applied automatically on first start. No manual migrations needed for a fresh install.
 
-```bash
-source .env
-docker exec -i clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" "${DB_NAME}" < database/add_admin_comments.sql
-docker exec -i clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" "${DB_NAME}" < database/add_expiration_tracking.sql
-```
-
-### 5. Create your first admin account
+### 4. Create your first admin account
 
 ```bash
 docker exec -it clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" "${DB_NAME}"
@@ -109,14 +104,36 @@ To generate a bcrypt hash:
 python3 -c "import bcrypt; print(bcrypt.hashpw(b'yourpassword', bcrypt.gensalt()).decode())"
 ```
 
-### 6. Set up expiration notifications (optional)
-
-Add to your server's crontab for daily 9am checks:
+### 5. Set up expiration notifications (optional)
 
 ```bash
 crontab -e
 # Add:
-0 9 * * * /path/to/membership-portal/scripts/run_expiration_check.sh >> /path/to/membership-portal/backups/expiration_check.log 2>&1
+0 9 * * * docker exec clubledger_web python3 /app/scripts/check_expirations.py >> /var/log/clubledger_expirations.log 2>&1
+```
+
+### 6. Import FCC license data (optional)
+
+Enables call sign lookup and profile sync in the admin interface.
+
+```bash
+# Full import (~1.68M records, runs once, takes a few minutes)
+docker exec clubledger_web python3 /app/scripts/import_fcc.py
+
+# Daily incremental updates — add to crontab:
+0 3 * * * docker exec clubledger_web python3 /app/scripts/import_fcc.py --daily >> /var/log/fcc_import.log 2>&1
+```
+
+---
+
+## Upgrading an Existing Install
+
+Pull the new image and run any new migration files before restarting:
+
+```bash
+# Example: upgrading to v1.06 (adds 2FA support)
+docker exec -i clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" "${DB_NAME}" < database/add_2fa.sql
+docker compose pull web && docker compose up -d --force-recreate web
 ```
 
 ---
@@ -129,7 +146,7 @@ Four environment variables control all club-specific text throughout the app, em
 |----------|-------------|---------|
 | `ORG_NAME` | Full organisation name | `Ham Radio Club` |
 | `SERVICE_DESK_URL` | Support URL shown in emails and password recovery | *(omit for generic text)* |
-| `LOGO_FILENAME` | Filename in `app/static/` for login page logo | *(omit to show org name as text)* |
+| `LOGO_FILENAME` | Filename in `static/` for login page logo | *(omit to show org name as text)* |
 | `ADMIN_EMAILS` | Comma-separated list for expiration summary emails | *(none)* |
 
 ---
@@ -137,23 +154,36 @@ Four environment variables control all club-specific text throughout the app, em
 ## File Structure
 
 ```
-membership-portal/
+clubledger/
 ├── app/
-│   ├── app.py              ← Flask application
-│   ├── requirements.txt
-│   └── static/             ← Logo and static assets
-├── templates/              ← Jinja2 HTML templates
-├── database/               ← SQL migration files
-│   ├── add_admin_comments.sql
-│   └── add_expiration_tracking.sql
+│   ├── app.py              ← Flask application (all routes)
+│   ├── twofa.py            ← 2FA helpers (TOTP, backup codes, WebAuthn)
+│   └── requirements.txt
+├── templates/
+│   ├── base.html           ← Shared layout
+│   ├── dashboard.html
+│   ├── profile.html
+│   ├── twofa/              ← 2FA templates
+│   │   ├── challenge.html
+│   │   ├── security.html
+│   │   ├── setup_totp.html
+│   │   ├── backup_codes.html
+│   │   └── webauthn_register.html
+│   └── …
+├── static/                 ← Logo and static assets (volume-mounted)
+├── database/
+│   ├── schema.sql                  ← Full schema (auto-applied on fresh install)
+│   ├── add_admin_comments.sql      ← Migration: v2.1 → v2.2
+│   ├── add_expiration_tracking.sql ← Migration: v2.1 → v2.2
+│   ├── add_fcc_lookup.sql          ← Migration: adds fcc_licenses table
+│   └── add_2fa.sql                 ← Migration: adds 2FA tables/columns
 ├── scripts/
-│   ├── check_expirations.py        ← Cron notification script
+│   ├── import_fcc.py               ← FCC ULS import (full + daily)
+│   ├── check_expirations.py        ← Expiration notification cron
 │   ├── run_expiration_check.sh
-│   ├── setup_expiration_notifications.sh
 │   └── backup_and_email.sh
 ├── documentation/          ← Administrator and member guides
-├── tests/
-│   └── test_data_setup.sql
+├── Dockerfile
 └── docker-compose.yml
 ```
 
@@ -185,16 +215,10 @@ ORG_NAME=
 SERVICE_DESK_URL=
 LOGO_FILENAME=
 ADMIN_EMAILS=
-```
 
----
-
-## Rollback
-
-```bash
-docker compose down
-docker exec -i clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" < backup.sql
-docker compose up -d
+# hCaptcha (optional — omit or leave blank to disable)
+HCAPTCHA_SITE_KEY=
+HCAPTCHA_SECRET_KEY=
 ```
 
 ---
@@ -209,9 +233,13 @@ After deployment:
 - [ ] Admin comments field visible on profile (admins only)
 - [ ] PDF export downloads and sorts by last name
 - [ ] Status badges show correct colours
-- [ ] Call signs are clickable links
+- [ ] Save a profile change — member receives diff email
 - [ ] Password reset emails send correctly
-- [ ] Record change emails send correctly when a profile is saved
+- [ ] hCaptcha widget appears on login and password recovery (if keys configured)
+- [ ] Security & 2FA page accessible from user dropdown
+- [ ] TOTP setup: scan QR code, verify, receive backup codes
+- [ ] FCC lookup button on Add Member populates name/address
+- [ ] FCC comparison card on admin profile view loads and highlights differences
 
 ---
 

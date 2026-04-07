@@ -88,6 +88,7 @@
                         <div class="col-md-5 mb-3">
                             <label for="zip" class="form-label">ZIP Code</label>
                             <input type="text" class="form-control" id="zip" name="zip" value="{{ member.zip or '' }}">
+                            <div id="zipHint" class="form-text"></div>
                         </div>
                     </div>
 
@@ -292,5 +293,11 @@ document.getElementById('call_sign').addEventListener('blur', function() {
     fccLookup(this.value.trim().toUpperCase());
 });
 {% endif %}
+</script>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+attachZipLookup('zip', 'city', 'state', 'zipHint');
 </script>
 {% endblock %}

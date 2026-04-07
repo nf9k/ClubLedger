@@ -1,45 +1,58 @@
-# Membership Portal — Quick Reference
+# ClubLedger — Quick Reference
 
 ## Project Layout
 
 ```
-membership-portal/
+clubledger/
 ├── app/
-│   ├── app.py              ← Flask application
-│   └── static/             ← Logo and static assets
-├── templates/              ← HTML templates
-├── database/               ← SQL migrations
-├── scripts/                ← Cron and backup scripts
+│   ├── app.py              ← Flask application (all routes)
+│   ├── twofa.py            ← 2FA helpers
+│   └── requirements.txt
+├── templates/              ← Jinja2 HTML templates
+│   └── twofa/              ← 2FA-specific templates
+├── static/                 ← Logo and assets (volume-mounted)
+├── database/               ← schema.sql + migration files
+├── scripts/                ← FCC import, expiration check, backup
 ├── documentation/          ← Admin and member guides
-└── tests/
-    └── test_data_setup.sql ← Test accounts
+├── Dockerfile
+└── docker-compose.yml
 ```
 
 ---
 
-## Quick Deployment (5 Steps)
+## Fresh Install (5 Steps)
 
 ```bash
 # 1. Configure
 cp .env.example .env
 # Edit .env — set SECRET_KEY, DB credentials, SMTP, APP_URL, ORG_NAME
 
-# 2. Start containers
-docker compose up -d --build
+# 2. Start containers (schema applied automatically)
+docker compose up -d
 
-# 3. Apply database migrations
-source .env
-docker exec -i clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" "${DB_NAME}" < database/add_admin_comments.sql
-docker exec -i clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" "${DB_NAME}" < database/add_expiration_tracking.sql
-
-# 4. Create first admin (replace values as needed)
+# 3. Create first admin
 docker exec -it clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" "${DB_NAME}"
-# Then run:
 # INSERT INTO members (call_sign, password_hash, email, name, is_admin)
 # VALUES ('W9ABC', '<bcrypt-hash>', 'admin@yourclub.org', 'Your Name', 1);
 
-# 5. Verify
+# Generate bcrypt hash:
+# python3 -c "import bcrypt; print(bcrypt.hashpw(b'yourpassword', bcrypt.gensalt()).decode())"
+
+# 4. Verify
 curl -I http://localhost:5000
+
+# 5. (Optional) Import FCC data
+docker exec clubledger_web python3 /app/scripts/import_fcc.py
+```
+
+---
+
+## Upgrading
+
+```bash
+# Run any new migration(s) first, then pull and restart
+docker exec -i clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" "${DB_NAME}" < database/add_2fa.sql
+docker compose pull web && docker compose up -d --force-recreate web
 ```
 
 ---
@@ -53,7 +66,7 @@ LOGO_FILENAME=logo.png
 ADMIN_EMAILS=admin@yourclub.org,other@yourclub.org
 ```
 
-`ORG_NAME` flows into the navbar, page titles, all email subjects and bodies, and the PDF header. If `LOGO_FILENAME` is omitted, the org name renders as text on the login page. If `SERVICE_DESK_URL` is omitted, emails use generic "contact an administrator" text.
+`ORG_NAME` flows into the navbar, page titles, all email subjects/bodies, and the PDF header. `APP_URL` is used to derive the WebAuthn origin for 2FA security keys — must be the exact URL members use to reach the site.
 
 ---
 
@@ -62,7 +75,10 @@ ADMIN_EMAILS=admin@yourclub.org,other@yourclub.org
 | Feature | Description |
 |---------|-------------|
 | **Call Sign Login** | Members log in with call sign + password |
-| **Record Change Emails** | Members receive a field-by-field diff whenever their record is saved |
+| **hCaptcha** | Bot protection on login and password recovery (optional) |
+| **Two-Factor Auth** | TOTP app, YubiKey/WebAuthn, or backup codes |
+| **FCC Lookup** | Admin looks up any call sign; one-click sync to profile |
+| **Record Change Emails** | Members receive a field-by-field diff on every save |
 | **Admin Comments** | 500-char internal notes field, invisible to members |
 | **PDF Export** | Roster sorted by last name, landscape format |
 | **Call Sign Edit** | Admins can change member call signs |
@@ -80,32 +96,25 @@ ADMIN_EMAILS=admin@yourclub.org,other@yourclub.org
 ☐ Admin comments field visible (admins only)
 ☐ PDF export downloads and sorts by last name
 ☐ Status badges show correct colours
-☐ Call signs are clickable links
 ☐ Save a profile change — member receives diff email
+☐ hCaptcha widget visible on login and password recovery (if keys configured)
+☐ Security & 2FA page accessible from user dropdown
+☐ TOTP setup works end-to-end
+☐ FCC lookup populates name/address on Add Member
 ☐ Expiration cron set up (optional)
+☐ FCC daily import cron set up (optional)
 ```
 
 ---
 
-## Optional: Expiration Notifications
+## Cron Jobs
 
 ```bash
-# Schedule daily checks at 9 AM
-crontab -e
-# Add:
-0 9 * * * /path/to/membership-portal/scripts/run_expiration_check.sh >> /path/to/membership-portal/backups/expiration_check.log 2>&1
-```
+# Expiration notifications — daily at 9 AM
+0 9 * * * docker exec clubledger_web python3 /app/scripts/check_expirations.py >> /var/log/clubledger_expirations.log 2>&1
 
-Requires `ADMIN_EMAILS` set in `.env` to receive summary reports.
-
----
-
-## Rollback
-
-```bash
-docker compose down
-docker exec -i clubledger_db mariadb -u root -p"${DB_ROOT_PASSWORD}" < backup.sql
-docker compose up -d
+# FCC incremental update — daily at 3 AM
+0 3 * * * docker exec clubledger_web python3 /app/scripts/import_fcc.py --daily >> /var/log/fcc_import.log 2>&1
 ```
 
 ---
@@ -113,7 +122,10 @@ docker compose up -d
 ## Security Notes
 
 - Passwords are bcrypt-hashed — admins never see them
-- Admin comments are stored in the database and not exposed to members
+- hCaptcha protects login and password recovery from bots — inactive unless both keys are set in `.env` and compose `environment:`
+- 2FA backup codes are individually bcrypt-hashed and single-use
+- WebAuthn origin is derived from `APP_URL` — must match the browser-facing URL exactly
+- Admin comments are not exposed to members via any route
 - SMTP credentials live in `.env` — never commit that file
 - Session timeout: 24 hours
 - All SQL queries use parameterised placeholders
@@ -124,6 +136,4 @@ docker compose up -d
 
 - Docker & Docker Compose
 - MariaDB 11
-- Python 3.9+
 - SMTP server access
-- 100 MB disk space minimum
