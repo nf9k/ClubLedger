@@ -21,12 +21,15 @@
                     <div class="mb-3">
                         <label for="call_sign" class="form-label">Call Sign</label>
                         <input type="text" class="form-control text-uppercase" id="call_sign" name="call_sign" 
-                               placeholder="W9ABC" required autofocus style="text-transform: uppercase;">
+                               placeholder="Call Sign" required autofocus style="text-transform: uppercase;">
                     </div>
                     <div class="mb-3">
                         <label for="password" class="form-label">Password</label>
                         <input type="password" class="form-control" id="password" name="password" required>
                     </div>
+                    {% if hcaptcha_site_key %}
+                    <div class="h-captcha mb-3" data-sitekey="{{ hcaptcha_site_key }}"></div>
+                    {% endif %}
                     <div class="d-grid">
                         <button type="submit" class="btn btn-primary">
                             <i class="bi bi-box-arrow-in-right"></i> Login

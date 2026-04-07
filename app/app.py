@@ -1,11 +1,14 @@
+import io
 import os
 import secrets
+import urllib.parse
 from datetime import datetime, timedelta
 from functools import wraps
 import bcrypt
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, abort
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 import MySQLdb
+import requests
 from flask_mail import Mail, Message
 
 app = Flask(__name__)
@@ -30,6 +33,13 @@ app.config['MAIL_PASSWORD'] = os.getenv('SMTP_PASSWORD', '')
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('SMTP_FROM_EMAIL', 'noreply@example.com')
 
 mail = Mail(app)
+
+# WebAuthn config (derived from APP_URL)
+_app_url = os.getenv('APP_URL', 'http://localhost:5000')
+_parsed_url = urllib.parse.urlparse(_app_url)
+app.config['WEBAUTHN_RP_ID'] = _parsed_url.hostname
+app.config['WEBAUTHN_ORIGIN'] = f"{_parsed_url.scheme}://{_parsed_url.netloc}"
+
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
@@ -39,12 +49,17 @@ ORG_NAME         = os.getenv('ORG_NAME', 'Ham Radio Club')
 SERVICE_DESK_URL = os.getenv('SERVICE_DESK_URL', '')
 LOGO_FILENAME    = os.getenv('LOGO_FILENAME', '')
 
-VERSION = 'v1.05'
+# hCaptcha (both keys must be set to activate; app works normally without them)
+HCAPTCHA_SITE_KEY   = os.getenv('HCAPTCHA_SITE_KEY', '')
+HCAPTCHA_SECRET_KEY = os.getenv('HCAPTCHA_SECRET_KEY', '')
+
+VERSION = 'v1.09'
 APP_CREDIT = f'ClubLedger {VERSION} by NF9K'
 
 @app.context_processor
 def inject_org():
-    return dict(org_name=ORG_NAME, service_desk_url=SERVICE_DESK_URL, logo_filename=LOGO_FILENAME, app_credit=APP_CREDIT)
+    return dict(org_name=ORG_NAME, service_desk_url=SERVICE_DESK_URL, logo_filename=LOGO_FILENAME,
+                app_credit=APP_CREDIT, hcaptcha_site_key=HCAPTCHA_SITE_KEY)
 
 # Database helper functions
 def get_db_connection():
@@ -98,6 +113,21 @@ def check_password(password, hashed):
 def generate_reset_token():
     """Generate a secure random token"""
     return secrets.token_urlsafe(32)
+
+def _verify_hcaptcha():
+    """Verify hCaptcha response. Returns True if keys not configured (safe default)."""
+    if not HCAPTCHA_SITE_KEY or not HCAPTCHA_SECRET_KEY:
+        return True
+    token = request.form.get('h-captcha-response', '')
+    try:
+        resp = requests.post(
+            'https://hcaptcha.com/siteverify',
+            data={'secret': HCAPTCHA_SECRET_KEY, 'response': token},
+            timeout=5,
+        )
+        return resp.json().get('success', False)
+    except Exception:
+        return False
 
 DIFF_FIELD_LABELS = {
     'call_sign':    'Call Sign',
@@ -194,17 +224,26 @@ def login():
         return redirect(url_for('dashboard'))
     
     if request.method == 'POST':
+        if not _verify_hcaptcha():
+            flash('Please complete the CAPTCHA.', 'danger')
+            return render_template('login.html')
         call_sign = request.form.get('call_sign').upper()
         password = request.form.get('password')
         
         conn = get_db_connection()
         cursor = dict_cursor(conn)
-        cursor.execute("SELECT id, call_sign, email, password_hash, is_admin FROM members WHERE call_sign = %s", (call_sign,))
+        cursor.execute(
+            "SELECT id, call_sign, email, password_hash, is_admin, totp_enabled, webauthn_enabled "
+            "FROM members WHERE call_sign = %s", (call_sign,))
         user_data = cursor.fetchone()
         cursor.close()
         conn.close()
-        
+
         if user_data and check_password(password, user_data['password_hash']):
+            if user_data['totp_enabled'] or user_data['webauthn_enabled']:
+                session['pending_2fa_user_id'] = user_data['id']
+                session['pending_2fa_next'] = request.form.get('next') or url_for('dashboard')
+                return redirect(url_for('twofa_challenge'))
             user = User(user_data['id'], user_data['call_sign'], user_data['email'], user_data['is_admin'])
             login_user(user, remember=True)
             flash('Login successful!', 'success')
@@ -689,6 +728,9 @@ def initiate_password_reset(user_id):
 @app.route('/forgot-password', methods=['GET', 'POST'])
 def forgot_password():
     if request.method == 'POST':
+        if not _verify_hcaptcha():
+            flash('Please complete the CAPTCHA.', 'danger')
+            return render_template('forgot_password.html')
         email = request.form.get('email')
         
         conn = get_db_connection()
@@ -822,6 +864,23 @@ def add_member():
     
     return render_template('add_member.html')
 
+@app.route('/zip-lookup/<zip_code>')
+def zip_lookup(zip_code):
+    conn = get_db_connection()
+    cur  = dict_cursor(conn)
+    cur.execute(
+        'SELECT DISTINCT city, state FROM fcc_licenses WHERE zip = %s LIMIT 5',
+        (zip_code.strip(),)
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify([
+        {'city': r['city'].title() if r['city'] else '', 'state': r['state'].upper() if r['state'] else ''}
+        for r in rows
+    ])
+
+
 @app.route('/admin/fcc-lookup/<callsign>')
 @login_required
 @admin_required
@@ -856,6 +915,276 @@ def delete_member(user_id):
     
     flash('Member deleted successfully.', 'success')
     return redirect(url_for('dashboard'))
+
+# ---------------------------------------------------------------
+# Two-Factor Authentication routes
+# ---------------------------------------------------------------
+
+@app.route('/2fa/challenge', methods=['GET', 'POST'])
+def twofa_challenge():
+    from twofa import (verify_totp, verify_backup_code, unused_backup_code_count,
+                       webauthn_begin_authentication, webauthn_complete_authentication)
+    user_id = session.get('pending_2fa_user_id')
+    if not user_id:
+        return redirect(url_for('login'))
+
+    conn = get_db_connection()
+    cur = dict_cursor(conn)
+    cur.execute(
+        'SELECT id, call_sign, email, is_admin, totp_secret, totp_enabled, webauthn_enabled '
+        'FROM members WHERE id = %s', (user_id,)
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not row:
+        session.pop('pending_2fa_user_id', None)
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        code = request.form.get('code', '').strip()
+        if not code:
+            flash('Please enter your verification code.', 'danger')
+            return render_template('twofa/challenge.html', row=row)
+
+        if row['totp_enabled'] and row['totp_secret'] and len(code) == 6 and code.isdigit():
+            if verify_totp(row['totp_secret'], code):
+                return _complete_2fa(row)
+            flash('Invalid code. Please try again.', 'danger')
+            return render_template('twofa/challenge.html', row=row)
+
+        if verify_backup_code(user_id, code):
+            remaining = unused_backup_code_count(user_id)
+            resp = _complete_2fa(row)
+            if remaining <= 2:
+                flash(
+                    f'Backup code accepted. You have {remaining} code(s) remaining — '
+                    'consider regenerating them in your security settings.',
+                    'warning',
+                )
+            else:
+                flash('Backup code accepted.', 'success')
+            return resp
+
+        flash('Invalid code. Please try again.', 'danger')
+
+    return render_template('twofa/challenge.html', row=row)
+
+
+def _complete_2fa(row):
+    user = User(row['id'], row['call_sign'], row['email'], row['is_admin'])
+    login_user(user, remember=True)
+    next_url = session.pop('pending_2fa_next', url_for('dashboard'))
+    session.pop('pending_2fa_user_id', None)
+    return redirect(next_url)
+
+
+@app.route('/2fa/webauthn/authenticate/begin', methods=['POST'])
+def twofa_webauthn_auth_begin():
+    from twofa import webauthn_begin_authentication
+    user_id = session.get('pending_2fa_user_id')
+    if not user_id:
+        return jsonify({'error': 'No pending login'}), 400
+    options_json, challenge_b64 = webauthn_begin_authentication(app, user_id)
+    session['webauthn_auth_challenge'] = challenge_b64
+    return options_json, 200, {'Content-Type': 'application/json'}
+
+
+@app.route('/2fa/webauthn/authenticate/complete', methods=['POST'])
+def twofa_webauthn_auth_complete():
+    from twofa import webauthn_complete_authentication
+    user_id = session.get('pending_2fa_user_id')
+    challenge_b64 = session.pop('webauthn_auth_challenge', None)
+    if not user_id or not challenge_b64:
+        return jsonify({'success': False, 'message': 'Session expired'}), 400
+
+    try:
+        verified_user_id = webauthn_complete_authentication(app, challenge_b64, request.get_json(force=True))
+    except Exception as e:
+        app.logger.warning('WebAuthn authentication failed: %s', e)
+        return jsonify({'success': False, 'message': 'Security key verification failed'}), 400
+
+    if verified_user_id != user_id:
+        return jsonify({'success': False, 'message': 'Key does not match account'}), 400
+
+    conn = get_db_connection()
+    cur = dict_cursor(conn)
+    cur.execute('SELECT id, call_sign, email, is_admin FROM members WHERE id = %s', (user_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    next_url = session.pop('pending_2fa_next', url_for('dashboard'))
+    session.pop('pending_2fa_user_id', None)
+    user = User(row['id'], row['call_sign'], row['email'], row['is_admin'])
+    login_user(user, remember=True)
+    return jsonify({'success': True, 'redirect': next_url})
+
+
+@app.route('/2fa/setup/totp', methods=['GET', 'POST'])
+@login_required
+def twofa_setup_totp():
+    from twofa import generate_totp_secret, get_totp_uri, verify_totp, generate_backup_codes
+    if request.method == 'POST':
+        action = request.form.get('action')
+
+        if action == 'generate':
+            secret = generate_totp_secret()
+            session['totp_pending_secret'] = secret
+            return render_template('twofa/setup_totp.html', secret=secret,
+                                   uri=get_totp_uri(secret, current_user.username))
+
+        if action == 'verify':
+            secret = session.get('totp_pending_secret')
+            code = request.form.get('code', '').strip()
+            if not secret:
+                flash('Session expired — please start over.', 'danger')
+                return render_template('twofa/setup_totp.html')
+            if not verify_totp(secret, code):
+                flash('Incorrect code. Scan the QR code and try again.', 'danger')
+                return render_template('twofa/setup_totp.html', secret=secret,
+                                       uri=get_totp_uri(secret, current_user.username))
+            conn = get_db_connection()
+            cur = dict_cursor(conn)
+            cur.execute(
+                'UPDATE members SET totp_secret = %s, totp_enabled = 1 WHERE id = %s',
+                (secret, current_user.id),
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+            session.pop('totp_pending_secret', None)
+            codes = generate_backup_codes(current_user.id)
+            flash('Authenticator app linked successfully.', 'success')
+            return render_template('twofa/backup_codes.html', codes=codes, just_generated=True)
+
+    return render_template('twofa/setup_totp.html')
+
+
+@app.route('/2fa/setup/totp/qr.png')
+@login_required
+def twofa_totp_qr():
+    from twofa import generate_qr_png, get_totp_uri
+    secret = session.get('totp_pending_secret')
+    if not secret:
+        abort(404)
+    png = generate_qr_png(get_totp_uri(secret, current_user.username))
+    return send_file(io.BytesIO(png), mimetype='image/png')
+
+
+@app.route('/2fa/backup-codes', methods=['GET', 'POST'])
+@login_required
+def twofa_backup_codes():
+    from twofa import generate_backup_codes, unused_backup_code_count
+    if request.method == 'POST':
+        pw = request.form.get('password', '')
+        conn = get_db_connection()
+        cur = dict_cursor(conn)
+        cur.execute('SELECT password_hash FROM members WHERE id = %s', (current_user.id,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not check_password(pw, row['password_hash']):
+            flash('Incorrect password.', 'danger')
+            return render_template('twofa/backup_codes.html',
+                                   remaining=unused_backup_code_count(current_user.id))
+        codes = generate_backup_codes(current_user.id)
+        return render_template('twofa/backup_codes.html', codes=codes, just_generated=True)
+
+    return render_template('twofa/backup_codes.html',
+                           remaining=unused_backup_code_count(current_user.id))
+
+
+@app.route('/2fa/disable', methods=['POST'])
+@login_required
+def twofa_disable():
+    pw = request.form.get('password', '')
+    conn = get_db_connection()
+    cur = dict_cursor(conn)
+    cur.execute('SELECT password_hash FROM members WHERE id = %s', (current_user.id,))
+    row = cur.fetchone()
+    if not check_password(pw, row['password_hash']):
+        cur.close()
+        conn.close()
+        flash('Incorrect password — 2FA not disabled.', 'danger')
+        return redirect(url_for('twofa_security'))
+
+    cur.execute(
+        'UPDATE members SET totp_secret = NULL, totp_enabled = 0, webauthn_enabled = 0 WHERE id = %s',
+        (current_user.id,),
+    )
+    cur.execute('DELETE FROM totp_backup_codes WHERE user_id = %s', (current_user.id,))
+    cur.execute('DELETE FROM webauthn_credentials WHERE user_id = %s', (current_user.id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+    flash('Two-factor authentication has been disabled.', 'success')
+    return redirect(url_for('twofa_security'))
+
+
+@app.route('/2fa/setup/webauthn', methods=['GET', 'POST'])
+@login_required
+def twofa_setup_webauthn():
+    if request.method == 'POST':
+        key_name = request.form.get('key_name', 'Security Key').strip() or 'Security Key'
+        session['webauthn_reg_key_name'] = key_name
+        return render_template('twofa/webauthn_register.html', key_name=key_name)
+    return render_template('twofa/webauthn_register.html')
+
+
+@app.route('/2fa/webauthn/register/begin', methods=['POST'])
+@login_required
+def twofa_webauthn_reg_begin():
+    from twofa import webauthn_begin_registration
+    options_json, challenge_b64 = webauthn_begin_registration(app, current_user)
+    session['webauthn_reg_challenge'] = challenge_b64
+    return options_json, 200, {'Content-Type': 'application/json'}
+
+
+@app.route('/2fa/webauthn/register/complete', methods=['POST'])
+@login_required
+def twofa_webauthn_reg_complete():
+    from twofa import webauthn_complete_registration
+    challenge_b64 = session.pop('webauthn_reg_challenge', None)
+    if not challenge_b64:
+        return jsonify({'success': False, 'message': 'Session expired'}), 400
+
+    key_name = session.pop('webauthn_reg_key_name', 'Security Key')
+    try:
+        webauthn_complete_registration(app, challenge_b64, request.get_json(force=True),
+                                       current_user.id, key_name)
+    except Exception as e:
+        app.logger.warning('WebAuthn registration failed: %s', e)
+        return jsonify({'success': False, 'message': 'Security key registration failed'}), 400
+
+    return jsonify({'success': True, 'redirect': url_for('twofa_security')})
+
+
+@app.route('/2fa/webauthn/delete/<int:cred_id>', methods=['POST'])
+@login_required
+def twofa_webauthn_delete(cred_id):
+    from twofa import delete_webauthn_credential
+    delete_webauthn_credential(cred_id, current_user.id)
+    flash('Security key removed.', 'success')
+    return redirect(url_for('twofa_security'))
+
+
+@app.route('/2fa/security')
+@login_required
+def twofa_security():
+    from twofa import get_webauthn_credentials, unused_backup_code_count
+    conn = get_db_connection()
+    cur = dict_cursor(conn)
+    cur.execute('SELECT totp_enabled, webauthn_enabled FROM members WHERE id = %s', (current_user.id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    keys = get_webauthn_credentials(current_user.id)
+    remaining = unused_backup_code_count(current_user.id) if row['totp_enabled'] else 0
+    return render_template('twofa/security.html', row=row, keys=keys, remaining=remaining)
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)

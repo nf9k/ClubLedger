@@ -2,20 +2,60 @@
 
 ---
 
+## v1.09 (April 2026)
+
+### Fixed
+- Removed example call sign placeholder (`W9ABC`) from login field — replaced with "Call Sign" to reduce user confusion
+
+---
+
+## v1.08 (April 2026)
+
+### Added
+- ZIP code lookup on profile edit and Add Member forms — auto-fills city/state on blur via `GET /zip-lookup/<zip>` (unauthenticated, queries `fcc_licenses`)
+- `INDEX idx_zip (zip)` on `fcc_licenses` for fast ZIP queries
+- `app/static/js/app.js` with `attachZipLookup()` helper — auto-fills if city is empty, otherwise shows clickable badge suggestions; non-destructive when city pre-filled by FCC lookup
+
+---
+
+## v1.07 (April 2026)
+
+### Added
+- hCaptcha on login and password recovery forms
+- Widget is hidden/inactive if `HCAPTCHA_SITE_KEY` / `HCAPTCHA_SECRET_KEY` are not set — app works normally without them
+
+### Fixed
+- Hardcoded "IRC" text in password recovery form replaced with `{{ org_name }}`
+
+---
+
+## v1.06 (April 2026)
+
+### Added
+- Full two-factor authentication: TOTP (Google Authenticator, Authy, etc.) with QR code setup and manual key entry
+- 8 backup codes in XXXX-XXXX format, bcrypt-hashed, one-time use
+- WebAuthn/FIDO2 support for YubiKey and other security keys
+- Login flow intercepts 2FA-enabled users and routes to challenge page before completing session
+- **Security & 2FA** settings page accessible from user dropdown
+- `database/add_2fa.sql` migration for existing installs
+- New dependencies: `pyotp`, `qrcode[pil]`, `webauthn`
+
+---
+
 ## v1.05 (April 2026)
 
-### FCC Lookup — Add Member
-- Replaced blur-triggered badge with an inline **FCC Lookup** button on the call sign field
-- Clicking immediately fetches and populates name, address, city, state, and zip
-- Shows license class and active/expired status below the field
+### Changed
+- FCC lookup on Add Member replaced blur+badge pattern with an inline **FCC Lookup** button
+- Button immediately fetches and populates name, address, city, state, zip — no preview step
+- Shows license class and active/expired status inline below the field
 
 ---
 
 ## v1.04 (April 2026)
 
-### FCC Lookup — Profile Page
-- Admin profile view now shows a **FCC Record** comparison card below the call sign
-- Three columns: Field / Current / FCC — rows highlighted in yellow where values differ
+### Added
+- FCC comparison card on admin profile view — three columns: Field / Current / FCC
+- Rows highlighted in yellow where values differ from FCC record
 - **Sync from FCC** button applies all FCC values at once
 - Card auto-loads on page open; refreshes if call sign is changed
 
@@ -23,40 +63,45 @@
 
 ## v1.03 (April 2026)
 
-### FCC Callsign Lookup
-- New `fcc_licenses` table stores FCC ULS amateur radio license data
-- `scripts/import_fcc.py` downloads and imports the full FCC dataset (~1.68M records)
-- Supports `--daily` flag for incremental updates (runs via cron at 3am)
-- `/admin/fcc-lookup/<callsign>` endpoint for AJAX lookups
-- Download streamed to disk to avoid OOM on large FCC zip file
+### Added
+- `fcc_licenses` table — stores FCC ULS amateur radio license data (~1.68M records)
+- `scripts/import_fcc.py` — downloads and imports full FCC dataset; `--daily` flag for incremental updates
+- Daily cron at 3am for incremental FCC updates
+- `/admin/fcc-lookup/<callsign>` AJAX endpoint
 
-### Infrastructure
+### Fixed
+- FCC download now streams to a temp file instead of `io.BytesIO` (prevents OOM)
+- `INSERT IGNORE` handles duplicate callsigns within FCC source data
+
+### Changed
 - `scripts/` directory now included in Docker image
-- Docker image versioning introduced (`nf9k/clubledger` on Docker Hub)
 
 ---
 
 ## v1.02 (April 2026)
 
-### Branding & Credit
-- `VERSION` and `APP_CREDIT` constants added to `app.py`
-- "ClubLedger vX.xx by NF9K" appears on login page, page footer, PDF footer, and email signatures
-- PDF export filename now uses `ORG_NAME` instead of hardcoded "IRC_Membership_"
+### Added
+- `VERSION` and `APP_CREDIT` constants in `app.py`
+- "ClubLedger vX.xx by NF9K" on login page, page footer, PDF footer, and email signatures
+
+### Changed
+- PDF export filename now uses `ORG_NAME` instead of hardcoded prefix
 
 ---
 
 ## v1.01 (April 2026)
 
-### Project Rebranding
-- Repository renamed to **ClubLedger** on GitHub
-- All IRC-specific container names, paths, and references updated to `clubledger_*`
-- IRC-specific documentation replaced with generic guides (Administrator Manual, Member User Guide)
-- `CLAUDE.md` split: project context committed to repo; deployment-specific context stays local
+### Added
+- `Dockerfile` — python:3.13-slim, gunicorn, baked-in app and templates
+- `docker-compose.yml` — `clubledger_web` + `clubledger_db`, static volume mount for logos
+- `database/schema.sql` — complete schema auto-applied on first MariaDB start
+- `CLAUDE.md` committed to repo (generic project context)
 
-### Containerised Deployment
-- `Dockerfile` added — python:3.13-slim, gunicorn, baked-in app and templates
-- `docker-compose.yml` added — `clubledger_web` + `clubledger_db`, static volume mount for logos
-- `database/schema.sql` added — complete schema auto-applied on first MariaDB start (fresh installs skip manual migrations)
+### Changed
+- Repository renamed to **ClubLedger** on GitHub
+- All IRC-specific container names and paths updated to `clubledger_*`
+- IRC-specific documentation replaced with generic Administrator and Member guides
+- Deployment-specific context moved to local-only `.claude/CLAUDE.md`
 
 ---
 
