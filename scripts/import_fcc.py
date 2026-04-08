@@ -179,10 +179,16 @@ def run(daily=False):
                      license_class, license_status)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON DUPLICATE KEY UPDATE
-                    fname=VALUES(fname), mi=VALUES(mi), lname=VALUES(lname),
-                    suffix=VALUES(suffix), address=VALUES(address), city=VALUES(city),
-                    state=VALUES(state), zip=VALUES(zip),
-                    license_class=VALUES(license_class), license_status=VALUES(license_status),
+                    fname   = IF(VALUES(license_status)='A' OR license_status!='A', VALUES(fname),   fname),
+                    mi      = IF(VALUES(license_status)='A' OR license_status!='A', VALUES(mi),      mi),
+                    lname   = IF(VALUES(license_status)='A' OR license_status!='A', VALUES(lname),   lname),
+                    suffix  = IF(VALUES(license_status)='A' OR license_status!='A', VALUES(suffix),  suffix),
+                    address = IF(VALUES(license_status)='A' OR license_status!='A', VALUES(address), address),
+                    city    = IF(VALUES(license_status)='A' OR license_status!='A', VALUES(city),    city),
+                    state   = IF(VALUES(license_status)='A' OR license_status!='A', VALUES(state),   state),
+                    zip     = IF(VALUES(license_status)='A' OR license_status!='A', VALUES(zip),     zip),
+                    license_class  = IF(VALUES(license_status)='A' OR license_status!='A', VALUES(license_class),  license_class),
+                    license_status = IF(VALUES(license_status)='A' OR license_status!='A', VALUES(license_status), license_status),
                     updated_at=CURRENT_TIMESTAMP
             ''', batch)
         else:
