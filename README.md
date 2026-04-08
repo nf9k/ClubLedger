@@ -237,7 +237,7 @@ Set `DEMO_MODE=true` to run a public demo instance. This enables:
 - `POST /demo/reset?token=<DEMO_RESET_TOKEN>` endpoint for cron-based nightly resets
 - All outgoing email silently suppressed
 
-A sample deployment is available at [clubledger.nf9k.net](https://clubledger.nf9k.net).
+A sample deployment is available at [clubledger-demo.nf9k.net](https://clubledger-demo.nf9k.net).
 
 See `deploy/demo/` for a ready-to-use Docker Compose setup with Traefik labels.
 

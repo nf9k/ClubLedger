@@ -9,7 +9,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik"
-      - "traefik.http.routers.clubledger-demo.rule=Host(`clubledger.nf9k.net`)"
+      - "traefik.http.routers.clubledger-demo.rule=Host(`clubledger-demo.nf9k.net`)"
       - "traefik.http.services.clubledger-demo.loadbalancer.server.port=5000"
       - "traefik.http.routers.clubledger-demo.tls=true"
       - "traefik.http.routers.clubledger-demo.tls.domains[0].main=nf9k.net"
