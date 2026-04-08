@@ -152,12 +152,17 @@ def run(daily=False):
             am.get(usi),        hd.get(usi) or None,
         )
 
+    # Status priority: Active > unknown/None > everything else (Expired, Cancelled, Terminated)
+    _STATUS_RANK = {'A': 2, None: 1, '': 1}  # anything not listed defaults to 0
+    def _rank(status):
+        return _STATUS_RANK.get(status, 0)
+
     best = {}   # callsign -> best row
     for row in raw.values():
         call   = row[0]
-        status = row[10]   # license_status: 'A'=Active, 'E'=Expired, 'C'=Cancelled, etc.
+        status = row[10]
         prev   = best.get(call)
-        if prev is None or (status == 'A' and prev[10] != 'A'):
+        if prev is None or _rank(status) > _rank(prev[10]):
             best[call] = row
     rows = list(best.values())
 
