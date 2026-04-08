@@ -182,9 +182,15 @@ clubledger/
 │   ├── check_expirations.py        ← Expiration notification cron
 │   ├── run_expiration_check.sh
 │   └── backup_and_email.sh
-├── documentation/          ← Administrator and member guides
+├── docs/
+│   ├── screenshots/                ← README screenshots
+│   ├── vulnerability_report/       ← Grype/Trivy scan results
+│   ├── Administrator_Manual.md
+│   └── Member_User_Guide.md
+├── deploy/
+│   └── demo/                       ← Demo instance compose + .env
 ├── Dockerfile
-└── docker-compose.yml
+└── compose.yml
 ```
 
 ---
