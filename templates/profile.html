@@ -15,6 +15,7 @@
         <div class="card">
             <div class="card-body">
                 <form method="POST" action="{{ url_for('profile', user_id=member.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <h5 class="mb-3 text-primary">Station Information</h5>
                     
                     <div class="row">
@@ -200,6 +201,12 @@
 </div>
 
 <script>
+function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML || '<em class="text-muted">\u2014</em>';
+}
+
 // Character counter for admin comments
 const adminComments = document.getElementById('admin_comments');
 if (adminComments) {
@@ -246,14 +253,14 @@ function fccLookup(callsign) {
                 const fccVal  = (f.fcc || '').trim();
                 const differs = fccVal && fccVal.toUpperCase() !== current.toUpperCase();
                 return `<tr${differs ? ' class="table-warning"' : ''}>
-                    <td class="text-muted small">${f.label}</td>
-                    <td class="small">${current || '<em class="text-muted">—</em>'}</td>
-                    <td class="small fw-semibold">${fccVal || '<em class="text-muted">—</em>'}</td>
+                    <td class="text-muted small">${esc(f.label)}</td>
+                    <td class="small">${esc(current)}</td>
+                    <td class="small fw-semibold">${esc(fccVal)}</td>
                 </tr>`;
             }).join('');
 
             badge.innerHTML = `
-                <span class="badge ${statusClass}">${cls} — ${statusText}</span>
+                <span class="badge ${statusClass}">${esc(cls)} — ${esc(statusText)}</span>
                 ${updated ? `<small class="text-muted ms-2">FCC data: ${updated}</small>` : ''}
                 <div class="card mt-2 border-secondary">
                     <div class="card-header py-1 px-2 d-flex justify-content-between align-items-center">

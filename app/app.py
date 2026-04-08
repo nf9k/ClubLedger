@@ -1,3 +1,4 @@
+import hmac
 import io
 import os
 import secrets
@@ -7,13 +8,26 @@ from functools import wraps
 import bcrypt
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, abort
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask_wtf.csrf import CSRFProtect
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import MySQLdb
 import requests
 from flask_mail import Mail, Message
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+
+_secret_key = os.getenv('SECRET_KEY')
+if not _secret_key:
+    raise RuntimeError('SECRET_KEY environment variable must be set')
+app.config['SECRET_KEY'] = _secret_key
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('APP_URL', '').startswith('https')
+
+csrf = CSRFProtect(app)
+limiter = Limiter(get_remote_address, app=app, default_limits=[], storage_uri='memory://')
 
 # Database configuration
 DB_CONFIG = {
@@ -51,7 +65,7 @@ LOGO_FILENAME    = os.getenv('LOGO_FILENAME', '')
 HCAPTCHA_SITE_KEY   = os.getenv('HCAPTCHA_SITE_KEY', '')
 HCAPTCHA_SECRET_KEY = os.getenv('HCAPTCHA_SECRET_KEY', '')
 
-VERSION = 'v1.11'
+VERSION = 'v1.12'
 APP_CREDIT = f'ClubLedger {VERSION} by NF9K'
 
 # Demo mode
@@ -60,7 +74,7 @@ DEMO_RESET_TOKEN = os.getenv('DEMO_RESET_TOKEN', '')
 
 if DEMO_MODE:
     mail = Mail(app)
-    mail.send = lambda msg: print(f'Demo mode: suppressed email to {msg.recipients}')
+    mail.send = lambda msg: app.logger.debug('Demo mode: suppressed email to %s', msg.recipients)
 else:
     mail = Mail(app)
 
@@ -122,6 +136,15 @@ def check_password(password, hashed):
 def generate_reset_token():
     """Generate a secure random token"""
     return secrets.token_urlsafe(32)
+
+def _safe_redirect_url(target):
+    """Return target only if it is a safe relative URL, otherwise dashboard."""
+    if not target:
+        return url_for('dashboard')
+    parsed = urllib.parse.urlparse(target)
+    if parsed.scheme or parsed.netloc:
+        return url_for('dashboard')
+    return target
 
 def _verify_hcaptcha():
     """Verify hCaptcha response. Returns True if keys not configured (safe default)."""
@@ -187,7 +210,7 @@ The following fields were changed:
     try:
         mail.send(msg)
     except Exception as e:
-        print(f"Error sending record change email: {e}")
+        app.logger.error('Error sending record change email: %s', e)
 
 
 def send_password_reset_email(user_email, call_sign, token):
@@ -217,7 +240,7 @@ If you did not request this password reset, please ignore this email.
         mail.send(msg)
         return True
     except Exception as e:
-        print(f"Error sending email: {e}")
+        app.logger.error('Error sending email: %s', e)
         return False
 
 # Routes
@@ -228,17 +251,18 @@ def index():
     return redirect(url_for('login'))
 
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit('10/minute', methods=['POST'])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
-    
+
     if request.method == 'POST':
         if not _verify_hcaptcha():
             flash('Please complete the CAPTCHA.', 'danger')
             return render_template('login.html')
         call_sign = request.form.get('call_sign').upper()
         password = request.form.get('password')
-        
+
         conn = get_db_connection()
         cursor = dict_cursor(conn)
         cursor.execute(
@@ -251,7 +275,7 @@ def login():
         if user_data and check_password(password, user_data['password_hash']):
             if user_data['totp_enabled'] or user_data['webauthn_enabled']:
                 session['pending_2fa_user_id'] = user_data['id']
-                session['pending_2fa_next'] = request.form.get('next') or url_for('dashboard')
+                session['pending_2fa_next'] = _safe_redirect_url(request.form.get('next'))
                 return redirect(url_for('twofa_challenge'))
             user = User(user_data['id'], user_data['call_sign'], user_data['email'], user_data['is_admin'])
             login_user(user, remember=True)
@@ -735,6 +759,7 @@ def initiate_password_reset(user_id):
 
 
 @app.route('/forgot-password', methods=['GET', 'POST'])
+@limiter.limit('5/minute', methods=['POST'])
 def forgot_password():
     if request.method == 'POST':
         if not _verify_hcaptcha():
@@ -874,6 +899,7 @@ def add_member():
     return render_template('add_member.html')
 
 @app.route('/zip-lookup/<zip_code>')
+@login_required
 def zip_lookup(zip_code):
     conn = get_db_connection()
     cur  = dict_cursor(conn)
@@ -930,6 +956,7 @@ def delete_member(user_id):
 # ---------------------------------------------------------------
 
 @app.route('/2fa/challenge', methods=['GET', 'POST'])
+@limiter.limit('10/minute', methods=['POST'])
 def twofa_challenge():
     from twofa import (verify_totp, verify_backup_code, unused_backup_code_count,
                        webauthn_begin_authentication, webauthn_complete_authentication)
@@ -982,10 +1009,11 @@ def twofa_challenge():
 
 
 def _complete_2fa(row):
+    next_url = _safe_redirect_url(session.pop('pending_2fa_next', None))
+    # Regenerate session to prevent fixation: preserve nothing from pre-auth session
+    session.clear()
     user = User(row['id'], row['call_sign'], row['email'], row['is_admin'])
     login_user(user, remember=True)
-    next_url = session.pop('pending_2fa_next', url_for('dashboard'))
-    session.pop('pending_2fa_user_id', None)
     return redirect(next_url)
 
 
@@ -1024,8 +1052,8 @@ def twofa_webauthn_auth_complete():
     cur.close()
     conn.close()
 
-    next_url = session.pop('pending_2fa_next', url_for('dashboard'))
-    session.pop('pending_2fa_user_id', None)
+    next_url = _safe_redirect_url(session.pop('pending_2fa_next', None))
+    session.clear()
     user = User(row['id'], row['call_sign'], row['email'], row['is_admin'])
     login_user(user, remember=True)
     return jsonify({'success': True, 'redirect': next_url})
@@ -1200,20 +1228,20 @@ def twofa_security():
 # ---------------------------------------------------------------
 
 @app.route('/demo/reset', methods=['POST'])
+@csrf.exempt
 def demo_reset():
     if not DEMO_MODE:
         abort(404)
 
     token    = request.args.get('token') or request.form.get('token')
     is_admin = current_user.is_authenticated and current_user.is_admin
-    if not is_admin and (not DEMO_RESET_TOKEN or token != DEMO_RESET_TOKEN):
+    if not is_admin and (not DEMO_RESET_TOKEN or not hmac.compare_digest(token or '', DEMO_RESET_TOKEN)):
         abort(403)
 
     seed_path = os.path.join(os.path.dirname(__file__), '..', 'demo', 'seed.sql')
-    try:
-        sql = open(seed_path).read()
-    except FileNotFoundError:
-        return jsonify({'success': False, 'message': 'seed.sql not found'}), 500
+    if not os.path.isfile(seed_path):
+        abort(404)
+    sql = open(seed_path).read()
 
     clean = '\n'.join(
         ln for ln in sql.splitlines()

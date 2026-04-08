@@ -116,6 +116,7 @@
                                 {% endif %}
                                 {% if member.id != current_user.id %}
                                 <form method="POST" action="{{ url_for('delete_member', user_id=member.id) }}" class="d-inline">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-outline-danger" title="Delete" 
                                             onclick="return confirm('Are you sure you want to delete {{ member.call_sign }}? This action cannot be undone.')">
                                         <i class="bi bi-trash"></i>
@@ -181,46 +182,34 @@ function sortTable(columnIndex) {
 }
 
 // Password reset - AJAX (no page refresh)
+const _csrf = document.querySelector('meta[name="csrf-token"]').content;
 document.querySelectorAll('.password-reset-btn').forEach(btn => {
-    console.log('Password reset button found:', btn);
     btn.addEventListener('click', function() {
         const userId = this.dataset.userId;
         const email = this.dataset.email;
-        const callSign = this.dataset.callSign;
-        
-        console.log('Password reset clicked for:', callSign, email);
-        
+
         if (!confirm(`Send password reset email to ${email}?`)) {
             return;
         }
-        
-        // Disable button and show loading
+
         const originalHtml = this.innerHTML;
         this.disabled = true;
         this.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-        
+
         fetch(`/admin/initiate-password-reset/${userId}`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'X-CSRFToken': _csrf
             }
         })
-        .then(response => {
-            console.log('Response status:', response.status);
-            return response.json();
-        })
+        .then(response => response.json())
         .then(data => {
-            console.log('Response data:', data);
-            
-            // Simple alert for now (we can improve this later)
             alert(data.message);
-            
-            // Re-enable button
             this.disabled = false;
             this.innerHTML = originalHtml;
         })
-        .catch(error => {
-            console.error('Error:', error);
+        .catch(() => {
             alert('Error sending password reset email');
             this.disabled = false;
             this.innerHTML = originalHtml;

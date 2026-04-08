@@ -22,37 +22,43 @@ function attachZipLookup(zipId, cityId, stateId, hintId) {
 
   zipEl.addEventListener('blur', function () {
     const zip = zipEl.value.trim();
-    if (zip.length < 5) { hintEl.innerHTML = ''; return; }
+    if (zip.length < 5) { hintEl.textContent = ''; return; }
 
     fetch('/zip-lookup/' + encodeURIComponent(zip))
       .then(r => r.json())
       .then(results => {
-        hintEl.innerHTML = '';
+        hintEl.textContent = '';
         if (!results.length) return;
 
         if (!cityEl.value.trim()) {
-          // Auto-fill with first result
           cityEl.value  = results[0].city;
           stateEl.value = results[0].state;
-          // Show alternates (if any) as badges
           if (results.length > 1) {
-            hintEl.innerHTML = 'Alternates: ' + results.slice(1).map(r => badge(r)).join(' ');
+            hintEl.textContent = '';
+            const prefix = document.createTextNode('Alternates: ');
+            hintEl.appendChild(prefix);
+            results.slice(1).forEach(r => hintEl.appendChild(makeBadge(r, cityEl, stateEl, hintEl)));
           }
         } else {
-          // City already filled — show all as clickable suggestions
-          hintEl.innerHTML = 'ZIP suggestions: ' + results.map(r => badge(r)).join(' ');
+          const prefix = document.createTextNode('ZIP suggestions: ');
+          hintEl.appendChild(prefix);
+          results.forEach(r => hintEl.appendChild(makeBadge(r, cityEl, stateEl, hintEl)));
         }
       })
       .catch(() => {});
   });
 
-  function badge(r) {
-    const label = r.city + ', ' + r.state;
-    return `<a href="#" class="badge bg-secondary text-decoration-none me-1"
-               onclick="event.preventDefault();
-                        document.getElementById('${cityId}').value='${r.city.replace(/'/g,"\\'")}';
-                        document.getElementById('${stateId}').value='${r.state}';
-                        document.getElementById('${hintId}').innerHTML='';"
-            >${label}</a>`;
+  function makeBadge(r, cityEl, stateEl, hintEl) {
+    const a = document.createElement('a');
+    a.href = '#';
+    a.className = 'badge bg-secondary text-decoration-none me-1';
+    a.textContent = r.city + ', ' + r.state;
+    a.addEventListener('click', function (e) {
+      e.preventDefault();
+      cityEl.value = r.city;
+      stateEl.value = r.state;
+      hintEl.textContent = '';
+    });
+    return a;
   }
 }

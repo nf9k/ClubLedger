@@ -19,6 +19,7 @@
     {% if not key_name %}
     <p class="text-secondary">Give this key a name so you can identify it later.</p>
     <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="mb-3">
         <label class="form-label" for="key_name">Key Name</label>
         <input id="key_name" name="key_name" type="text" class="form-control"
@@ -62,7 +63,8 @@ document.getElementById('registerBtn').addEventListener('click', async function(
   statusEl.textContent = 'Waiting for security key…';
 
   try {
-    const optResp = await fetch('{{ url_for("twofa_webauthn_reg_begin") }}', { method: 'POST' });
+    const _csrf = document.querySelector('meta[name="csrf-token"]').content;
+    const optResp = await fetch('{{ url_for("twofa_webauthn_reg_begin") }}', { method: 'POST', headers: {'X-CSRFToken': _csrf} });
     const options = await optResp.json();
 
     options.challenge = b64urlDecode(options.challenge);
@@ -86,7 +88,7 @@ document.getElementById('registerBtn').addEventListener('click', async function(
 
     const verifyResp = await fetch('{{ url_for("twofa_webauthn_reg_complete") }}', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': _csrf },
       body: JSON.stringify(payload),
     });
     const result = await verifyResp.json();

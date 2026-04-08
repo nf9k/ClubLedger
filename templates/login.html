@@ -29,6 +29,7 @@
                 {% endif %}
 
                 <form method="POST" action="{{ url_for('login') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
                         <label for="call_sign" class="form-label">Call Sign</label>
                         <input type="text" class="form-control text-uppercase" id="call_sign" name="call_sign" 

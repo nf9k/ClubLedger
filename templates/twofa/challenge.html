@@ -6,6 +6,7 @@
   <title>Verify — {{ org_name }}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
 </head>
 <body class="d-flex align-items-center justify-content-center min-vh-100" style="background-color:#f0f4f8;">
 <div class="card" style="width: 24rem;">
@@ -23,6 +24,7 @@
 
     {% if row.totp_enabled %}
     <form method="post" class="mb-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="mb-3">
         <label class="form-label" for="code">Authenticator Code or Backup Code</label>
         <input id="code" name="code" type="text" class="form-control text-center"
@@ -67,7 +69,8 @@ document.getElementById('webauthnBtn').addEventListener('click', async function(
   statusEl.classList.remove('d-none');
   statusEl.textContent = 'Waiting for security key…';
   try {
-    const optResp = await fetch('{{ url_for("twofa_webauthn_auth_begin") }}', { method: 'POST' });
+    const _csrf = document.querySelector('meta[name="csrf-token"]').content;
+    const optResp = await fetch('{{ url_for("twofa_webauthn_auth_begin") }}', { method: 'POST', headers: {'X-CSRFToken': _csrf} });
     const options = await optResp.json();
 
     options.challenge = b64urlDecode(options.challenge);
@@ -92,7 +95,7 @@ document.getElementById('webauthnBtn').addEventListener('click', async function(
 
     const verifyResp = await fetch('{{ url_for("twofa_webauthn_auth_complete") }}', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': _csrf },
       body: JSON.stringify(payload),
     });
     const result = await verifyResp.json();
