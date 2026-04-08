@@ -76,6 +76,16 @@
     </nav>
     {% endif %}
 
+    {% if demo_mode %}
+    <div class="alert alert-warning rounded-0 mb-0 py-2 text-center small border-0 border-bottom border-warning">
+        <strong>Demo Mode</strong> — Login as <code>ADMIN</code> / <code>admin</code> (admin) or <code>USER</code> / <code>user</code> (member).
+        Data resets nightly.
+        {% if current_user.is_authenticated and current_user.is_admin %}
+        <button class="btn btn-sm btn-outline-warning ms-3 py-0" id="demo-reset-btn">Reset Now</button>
+        {% endif %}
+    </div>
+    {% endif %}
+
     <main class="container my-4">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
@@ -98,6 +108,22 @@
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     {% if hcaptcha_site_key %}
     <script src="https://js.hcaptcha.com/1/api.js" async defer></script>
+    {% endif %}
+    {% if demo_mode and current_user.is_authenticated and current_user.is_admin %}
+    <script>
+    const _demoBtn = document.getElementById('demo-reset-btn');
+    if (_demoBtn) {
+      _demoBtn.addEventListener('click', function() {
+        if (!confirm('Reset all demo data to defaults?')) return;
+        _demoBtn.disabled = true;
+        _demoBtn.textContent = 'Resetting…';
+        fetch('/demo/reset', {method:'POST'})
+          .then(r => r.json())
+          .then(d => { if (d.success) location.reload(); else alert(d.message); })
+          .catch(() => { _demoBtn.disabled = false; _demoBtn.textContent = 'Reset Now'; });
+      });
+    }
+    </script>
     {% endif %}
     {% block extra_js %}{% endblock %}
 </body>

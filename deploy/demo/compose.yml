@@ -1,0 +1,50 @@
+services:
+  web:
+    image: nf9k/clubledger:latest
+    container_name: clubledger-demo
+    env_file: .env
+    networks:
+      - traefik
+      - clubledger-demo
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      - "traefik.http.routers.clubledger-demo.rule=Host(`clubledger.nf9k.net`)"
+      - "traefik.http.services.clubledger-demo.loadbalancer.server.port=5000"
+      - "traefik.http.routers.clubledger-demo.tls=true"
+      - "traefik.http.routers.clubledger-demo.tls.domains[0].main=nf9k.net"
+      - "traefik.http.routers.clubledger-demo.tls.domains[0].sans=*.nf9k.net"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: mariadb:11
+    container_name: clubledger-demo-db
+    networks:
+      - clubledger-demo
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${DB_NAME}
+      MARIADB_USER: ${DB_USER}
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  db_data:
+
+networks:
+  traefik:
+    external: true
+  clubledger-demo:
+    internal: true
+    driver: bridge

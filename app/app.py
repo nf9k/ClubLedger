@@ -32,8 +32,6 @@ app.config['MAIL_USERNAME'] = os.getenv('SMTP_USER', '')
 app.config['MAIL_PASSWORD'] = os.getenv('SMTP_PASSWORD', '')
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('SMTP_FROM_EMAIL', 'noreply@example.com')
 
-mail = Mail(app)
-
 # WebAuthn config (derived from APP_URL)
 _app_url = os.getenv('APP_URL', 'http://localhost:5000')
 _parsed_url = urllib.parse.urlparse(_app_url)
@@ -53,13 +51,24 @@ LOGO_FILENAME    = os.getenv('LOGO_FILENAME', '')
 HCAPTCHA_SITE_KEY   = os.getenv('HCAPTCHA_SITE_KEY', '')
 HCAPTCHA_SECRET_KEY = os.getenv('HCAPTCHA_SECRET_KEY', '')
 
-VERSION = 'v1.10'
+VERSION = 'v1.11'
 APP_CREDIT = f'ClubLedger {VERSION} by NF9K'
+
+# Demo mode
+DEMO_MODE        = os.getenv('DEMO_MODE', 'false').lower() == 'true'
+DEMO_RESET_TOKEN = os.getenv('DEMO_RESET_TOKEN', '')
+
+if DEMO_MODE:
+    mail = Mail(app)
+    mail.send = lambda msg: print(f'Demo mode: suppressed email to {msg.recipients}')
+else:
+    mail = Mail(app)
 
 @app.context_processor
 def inject_org():
     return dict(org_name=ORG_NAME, service_desk_url=SERVICE_DESK_URL, logo_filename=LOGO_FILENAME,
-                app_credit=APP_CREDIT, hcaptcha_site_key=HCAPTCHA_SITE_KEY)
+                app_credit=APP_CREDIT, hcaptcha_site_key=HCAPTCHA_SITE_KEY,
+                demo_mode=DEMO_MODE)
 
 # Database helper functions
 def get_db_connection():
@@ -1184,6 +1193,43 @@ def twofa_security():
     keys = get_webauthn_credentials(current_user.id)
     remaining = unused_backup_code_count(current_user.id) if row['totp_enabled'] else 0
     return render_template('twofa/security.html', row=row, keys=keys, remaining=remaining)
+
+
+# ---------------------------------------------------------------
+# Demo reset endpoint
+# ---------------------------------------------------------------
+
+@app.route('/demo/reset', methods=['POST'])
+def demo_reset():
+    if not DEMO_MODE:
+        abort(404)
+
+    token    = request.args.get('token') or request.form.get('token')
+    is_admin = current_user.is_authenticated and current_user.is_admin
+    if not is_admin and (not DEMO_RESET_TOKEN or token != DEMO_RESET_TOKEN):
+        abort(403)
+
+    seed_path = os.path.join(os.path.dirname(__file__), '..', 'demo', 'seed.sql')
+    try:
+        sql = open(seed_path).read()
+    except FileNotFoundError:
+        return jsonify({'success': False, 'message': 'seed.sql not found'}), 500
+
+    clean = '\n'.join(
+        ln for ln in sql.splitlines()
+        if ln.strip() and not ln.strip().startswith('--')
+    )
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    for stmt in clean.split(';\n'):
+        stmt = stmt.strip().rstrip(';').strip()
+        if stmt:
+            cur.execute(stmt)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return jsonify({'success': True, 'message': 'Demo data has been reset.'})
 
 
 if __name__ == '__main__':

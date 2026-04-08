@@ -14,8 +14,19 @@
                     <h4 class="mb-0"><i class="bi bi-broadcast"></i> {{ org_name }}</h4>
                     {% endif %}
                     <p class="text-muted mt-3">Membership Portal</p>
-                    <p class="text-muted small">{{ app_credit }}</p>
                 </div>
+
+                {% if demo_mode %}
+                <div class="alert alert-warning py-2 small mb-3">
+                    <div class="fw-bold mb-1"><i class="bi bi-display"></i> Demo Instance</div>
+                    <div>Try either account:</div>
+                    <div class="mt-1 font-monospace">
+                        <span class="badge text-bg-secondary me-1">ADMIN / admin</span> administrator<br>
+                        <span class="badge text-bg-secondary me-1">USER / user</span> regular member
+                    </div>
+                    <div class="text-secondary mt-2" style="font-size:0.8em;">Data resets nightly. Emails are disabled.</div>
+                </div>
+                {% endif %}
 
                 <form method="POST" action="{{ url_for('login') }}">
                     <div class="mb-3">

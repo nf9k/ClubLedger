@@ -15,6 +15,7 @@ COPY app/app.py .
 COPY app/twofa.py .
 COPY templates/ ./templates/
 COPY scripts/ ./scripts/
+COPY demo/ ./demo/
 
 RUN mkdir -p static
 

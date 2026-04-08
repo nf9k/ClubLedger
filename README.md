@@ -2,7 +2,7 @@
 
 A self-hosted web application for managing ham radio club membership records. Members log in with their call sign to view and update their own information. Administrators manage the full member list, track dues, export rosters, and receive automated expiration notifications.
 
-**Current version: v1.07**
+**Current version: v1.11**
 
 ---
 
@@ -219,7 +219,29 @@ ADMIN_EMAILS=
 # hCaptcha (optional — omit or leave blank to disable)
 HCAPTCHA_SITE_KEY=
 HCAPTCHA_SECRET_KEY=
+
+# Demo mode (optional — enables demo banner, /demo/reset endpoint, disables SMTP)
+#DEMO_MODE=false
+#DEMO_RESET_TOKEN=change-me-to-a-random-secret
 ```
+
+---
+
+## Demo Mode
+
+Set `DEMO_MODE=true` to run a public demo instance. This enables:
+
+- Login page banner with demo credentials (`ADMIN` / `admin`, `USER` / `user`)
+- Navbar banner on all pages indicating demo mode
+- Admin "Reset Now" button to reload seed data on demand
+- `POST /demo/reset?token=<DEMO_RESET_TOKEN>` endpoint for cron-based nightly resets
+- All outgoing email silently suppressed
+
+A sample deployment is available at [clubledger.nf9k.net](https://clubledger.nf9k.net).
+
+See `deploy/demo/` for a ready-to-use Docker Compose setup with Traefik labels.
+
+To regenerate demo seed data: `python3 scripts/generate_demo_seed.py`
 
 ---
 
@@ -240,6 +262,52 @@ After deployment:
 - [ ] TOTP setup: scan QR code, verify, receive backup codes
 - [ ] FCC lookup button on Add Member populates name/address
 - [ ] FCC comparison card on admin profile view loads and highlights differences
+
+---
+
+## Screenshots
+
+### Login
+![Login page](docs/screenshots/login.png)
+
+### Forgot Password
+![Forgot password](docs/screenshots/forgot_password.png)
+
+### Admin Dashboard
+![Admin dashboard](docs/screenshots/dashboard.png)
+
+### Add Member
+![Add member form](docs/screenshots/add_member.png)
+
+### Member Profile (Admin View)
+![Profile — admin view](docs/screenshots/profile_admin.png)
+
+### Member Profile (Member View)
+![Profile — member view](docs/screenshots/profile_member.png)
+
+### FCC Lookup Card
+![FCC lookup comparison](docs/screenshots/fcc_lookup.png)
+
+### Change Password
+![Change password](docs/screenshots/change_password.png)
+
+### Security & 2FA
+![Security settings](docs/screenshots/security_2fa.png)
+
+### TOTP Setup
+![TOTP setup with QR code](docs/screenshots/totp_setup.png)
+
+### WebAuthn Registration
+![Hardware key registration](docs/screenshots/webauthn_register.png)
+
+### Backup Codes
+![Backup codes](docs/screenshots/backup_codes.png)
+
+### 2FA Challenge
+![2FA challenge prompt](docs/screenshots/2fa_challenge.png)
+
+### PDF Export
+![PDF roster export](docs/screenshots/pdf_export.png)
 
 ---
 
